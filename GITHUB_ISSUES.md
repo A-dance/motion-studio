@@ -78,56 +78,34 @@
 
 ---
 
-## Issue 2（任意）Phase 0 実装
+## Issue 2 — Phase 0 譜面生成
 
-**Title:**
-```
-[Phase 0] ローカルで動画→ダンス譜面 JSON を生成する
-```
-
-**Labels:** `enhancement`, `dance-app`, `phase-0`
-
-**Body:**
-
-```markdown
-## 目的
-
-ダンス動画から譜面（カウント × 棒人間ポーズ）をローカルで生成する。公開・クラウドは後回し。
-
-## タスク
-
-- [x] `scripts/generate_score.py`（骨格抽出・拍解析・JSON出力）
-- [ ] 譜面 JSON の棒人間プレビュー（カウント送り）
-- [ ] 拍ズレの手動調整（必要なら）
-
-## 手順
-
-`dance app/LOCAL.md` を参照。
-
-## 受け入れ条件
-
-- ローカル mp4 から `data/output/*_score.json` が生成できる
-- `counts[]` に各拍の `pose` が入っている
-```
+**Title:** `[Phase 0] ローカルで動画→ダンス譜面 JSON を生成する`  
+**ブランチ例:** `feature/issue-2-phase-0-generate-score`  
+**Body:** `dance app/issues/02-phase-0-generate-score.md` をコピー
 
 ---
 
-## Issue 3（任意）Phase 1 以降
+## Issue 3 — Phase 0 プレビュー
 
-**Title:**
-```
-[Phase 1] 譜面再生・自己比較・区間ループ
-```
+**Title:** `[Phase 0] 譜面 JSON の棒人間プレビュー`  
+**ブランチ例:** `feature/issue-3-phase-0-preview`  
+**Body:** `dance app/issues/03-phase-0-preview.md` をコピー
 
-**Body:**
+---
 
-```markdown
-Phase 0 完了後に着手。
+## Issue 4（任意）Phase 1
 
-- 譜面再生 UI（音 + カウント + 棒人間）
-- カメラ骨格と目標形の 2D 比較
-- 区間ループ練習
-```
+**Title:** `[Phase 1] 譜面再生・自己比較・区間ループ`  
+**ブランチ例:** `feature/issue-4-phase-1-practice-ui`
+
+Phase 0 完了後。譜面再生 UI、2D 比較、区間ループ。
+
+---
+
+## 開発フロー（Issue → ブランチ → PR）
+
+詳細は [WORKFLOW.md](./WORKFLOW.md) を参照。
 
 ---
 
