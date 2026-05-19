@@ -9,6 +9,10 @@ data/output/*
 *.wav
 *.mp3
 
+# ローカルツール・gh 認証情報
+.tools/
+.config/
+
 # Python
 .venv/
 venv/

@@ -169,12 +169,12 @@ git push origin --delete feature/issue-3-score-preview
 
 GitHub で Issue を作ったら、番号をメモしてブランチ名を合わせる。
 
-| 順番 | Issue タイトル（案） | ブランチ名（案） | 状態 |
-|------|---------------------|------------------|------|
-| 1 | [要件定義] 動きの譜面 | `feature/issue-1-requirements` | ドキュメント済み → PR で main へ |
-| 2 | [Phase 0] 動画→譜面 JSON | `feature/issue-2-phase-0-generate-score` | スクリプト一部済み |
-| 3 | [Phase 0] 譜面プレビュー | `feature/issue-3-phase-0-preview` | 未着手 |
-| 4 | [Phase 1] 譜面再生・比較 | `feature/issue-4-phase-1-practice-ui` | 未着手 |
+| Issue | タイトル | ブランチ名（例） | URL |
+|-------|----------|------------------|-----|
+| **#2** | [要件定義] 動きの譜面 | `feature/issue-2-requirements` | https://github.com/A-dance/cursor/issues/2 |
+| **#3** | [Phase 0] 動画→譜面 JSON | `feature/issue-3-phase-0-generate-score` | https://github.com/A-dance/cursor/issues/3 |
+| **#4** | [Phase 0] 譜面プレビュー | `feature/issue-4-phase-0-preview` | https://github.com/A-dance/cursor/issues/4 |
+| （未作成） | [Phase 1] 練習 UI | `feature/issue-5-phase-1-practice-ui` | — |
 
 ---
 
