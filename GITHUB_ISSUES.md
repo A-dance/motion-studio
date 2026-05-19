@@ -133,11 +133,21 @@ Phase 0 完了後に着手。
 
 ## 登録手順（ブラウザ）
 
+### 方法 A — テンプレート（おすすめ）
+
+1. https://github.com/A-dance/cursor/issues/new/choose を開く
+2. **「ダンスアプリ — 要件定義」** を選ぶ（表示されない場合は push 後に再読み込み）
+3. 内容を確認して **Submit new issue**
+
+### 方法 B — 手動コピー
+
 1. https://github.com/A-dance/cursor/issues を開く
-2. **New issue** をクリック
-3. 上記 **Issue 1** の Title と Body を貼り付け
+2. **New issue** → 上記 **Issue 1** の Title と Body を貼り付け
+3. または `dance app/issues/01-requirements.md` の全文を Body に貼る
 4. **Submit new issue**
-5. 課題で Phase 分けが必要なら Issue 2・3 も同様に作成
+5. Phase 分けが必要なら Issue 2・3 も同様に作成
+
+**注意:** Issue テンプレートはリポジトリ直下 `.github/ISSUE_TEMPLATE/` に置く必要があります（push 後に反映）。
 
 ## CLI で作る場合（`gh` インストール後）
 
