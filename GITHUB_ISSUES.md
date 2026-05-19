@@ -127,13 +127,15 @@ Phase 0 完了後。譜面再生 UI、2D 比較、区間ループ。
 
 **注意:** Issue テンプレートはリポジトリ直下 `.github/ISSUE_TEMPLATE/` に置く必要があります（push 後に反映）。
 
-## CLI で作る場合（`gh` インストール後）
+## 一括登録（おすすめ）
+
+ターミナルで次を実行すると Issue 1〜3 がまとめて作成されます。
 
 ```bash
-brew install gh
-gh auth login
+brew install gh    # 初回のみ
+gh auth login        # 初回のみ（ブラウザで認証）
 cd "/Users/ayana/cursor"
-gh issue create --title "[要件定義] ダンス独学プラットフォーム — 動きの譜面" --body-file "dance app/GITHUB_ISSUES.md"
+bash "dance app/scripts/create_github_issues.sh"
 ```
 
-※ `--body-file` は Issue 1 の body 部分だけのファイルにすると確実です。手動貼り付けが確実です。
+`labels` が無いとエラーになる場合は、GitHub で `dance-app` / `phase-0` ラベルを先に作るか、スクリプト内の `--label` 行を削除してください。
