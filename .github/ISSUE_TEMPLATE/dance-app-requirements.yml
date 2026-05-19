@@ -1,0 +1,52 @@
+name: ダンスアプリ — 要件定義
+description: 動きの譜面プラットフォームの要件定義を Issue に登録する
+title: "[要件定義] ダンス独学プラットフォーム — 動きの譜面"
+labels: ["documentation", "dance-app"]
+body:
+  - type: markdown
+    value: |
+      詳細は `dance app/README.md` を参照。全文は `dance app/issues/01-requirements.md` も利用可。
+
+  - type: textarea
+    id: concept
+    attributes:
+      label: コンセプト
+      value: |
+        ダンス動画から「動きの譜面」（カウント×棒人間）を自動生成し、音に合わせて追う独学プラットフォーム。最優先は譜面生成（Phase 0）。
+    validations:
+      required: true
+
+  - type: textarea
+    id: target
+    attributes:
+      label: ターゲット
+      value: |
+        ダンスを独学したい社会人（20〜40代）。初心者〜中級。初期は非公開の個人検証。
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem_solution
+    attributes:
+      label: 解決したい課題とその解決策
+      value: |
+        課題: 反復しづらい／形・音ハメが分からない／動画配信は著作権リスク／MVは途切れる
+        解決策: 譜面JSON／拍同期／2D骨格比較／ローカル処理／AI3体（後段）
+    validations:
+      required: true
+
+  - type: textarea
+    id: mvp
+    attributes:
+      label: 最低限機能
+      value: |
+        動画から譜面を自動生成（骨格抽出・拍解析・JSON・プレビュー）し、音とカウントで譜面を再生・2Dで形を比較・区間ループして練習し、振付アナリスト・練習プランナー・自主練コーチの3 AIが計画と相談を支援する
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: やらないこと
+      value: |
+        3D/AR/VR、動画再配信、SNS競争、過度なゲーミフィケーション、先生マッチング
