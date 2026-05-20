@@ -14,111 +14,9 @@ import json
 import sys
 from pathlib import Path
 
-import cv2
-import librosa
-import mediapipe as mp
-import numpy as np
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# MediaPipe Pose のランドマーク（主要関節のみ保存）
-POSE_LANDMARKS = {
-    "nose": mp.solutions.pose.PoseLandmark.NOSE,
-    "left_shoulder": mp.solutions.pose.PoseLandmark.LEFT_SHOULDER,
-    "right_shoulder": mp.solutions.pose.PoseLandmark.RIGHT_SHOULDER,
-    "left_elbow": mp.solutions.pose.PoseLandmark.LEFT_ELBOW,
-    "right_elbow": mp.solutions.pose.PoseLandmark.RIGHT_ELBOW,
-    "left_wrist": mp.solutions.pose.PoseLandmark.LEFT_WRIST,
-    "right_wrist": mp.solutions.pose.PoseLandmark.RIGHT_WRIST,
-    "left_hip": mp.solutions.pose.PoseLandmark.LEFT_HIP,
-    "right_hip": mp.solutions.pose.PoseLandmark.RIGHT_HIP,
-    "left_knee": mp.solutions.pose.PoseLandmark.LEFT_KNEE,
-    "right_knee": mp.solutions.pose.PoseLandmark.RIGHT_KNEE,
-    "left_ankle": mp.solutions.pose.PoseLandmark.LEFT_ANKLE,
-    "right_ankle": mp.solutions.pose.PoseLandmark.RIGHT_ANKLE,
-}
-
-
-def extract_poses(video_path: Path) -> tuple[list[dict], float]:
-    """フレームごとの骨格を抽出する。"""
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise RuntimeError(f"動画を開けません: {video_path}")
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    frames: list[dict] = []
-
-    with mp.solutions.pose.Pose(
-        static_image_mode=False,
-        model_complexity=1,
-        enable_segmentation=False,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    ) as pose:
-        frame_index = 0
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            result = pose.process(rgb)
-            time_sec = frame_index / fps
-
-            landmarks: dict[str, list[float] | None] = {}
-            if result.pose_landmarks:
-                for name, idx in POSE_LANDMARKS.items():
-                    lm = result.pose_landmarks.landmark[idx]
-                    landmarks[name] = [round(lm.x, 4), round(lm.y, 4), round(lm.visibility, 4)]
-            else:
-                landmarks = {name: None for name in POSE_LANDMARKS}
-
-            frames.append({"frame": frame_index, "time_sec": round(time_sec, 4), "pose": landmarks})
-            frame_index += 1
-
-    cap.release()
-    return frames, fps
-
-
-def extract_beats(video_path: Path) -> tuple[float, list[float]]:
-    """音轨から BPM と拍の時刻（秒）を推定する。"""
-    y, sr = librosa.load(str(video_path), mono=True)
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-    bpm = float(np.atleast_1d(tempo)[0])
-    return bpm, [round(float(t), 4) for t in beat_times]
-
-
-def nearest_frame(frames: list[dict], time_sec: float) -> dict:
-    """指定時刻に最も近いフレームの骨格を返す。"""
-    best = min(frames, key=lambda f: abs(f["time_sec"] - time_sec))
-    return best["pose"]
-
-
-def build_score(
-    video_path: Path,
-    frames: list[dict],
-    fps: float,
-    bpm: float,
-    beat_times: list[float],
-) -> dict:
-    """拍ごとに1ポーズを割り当てた譜面を組み立てる。"""
-    counts = []
-    for i, t in enumerate(beat_times, start=1):
-        counts.append(
-            {
-                "index": i,
-                "time_sec": t,
-                "label": str(i),
-                "pose": nearest_frame(frames, t),
-            }
-        )
-
-    return {
-        "version": 1,
-        "source": {"path": str(video_path.resolve()), "fps": round(fps, 2)},
-        "audio": {"bpm": round(bpm, 2), "beat_count": len(beat_times)},
-        "counts": counts,
-        "frames": frames,
-    }
+from score_lib import build_score, extract_beats, extract_poses, get_video_duration  # noqa: E402
 
 
 def main() -> int:
@@ -133,7 +31,13 @@ def main() -> int:
     parser.add_argument(
         "--no-frames",
         action="store_true",
-        help="全フレームデータを JSON に含めない（ファイルサイズ削減）",
+        help="全フレームデータを JSON に含めない（ファイルサイズ削減・精度評価には不向き）",
+    )
+    parser.add_argument(
+        "--target",
+        type=str,
+        default="",
+        help="追跡する人の位置（正規化 0〜1）例: 0.45,0.35 = 画面のその地点に近い人",
     )
     args = parser.parse_args()
 
@@ -144,20 +48,46 @@ def main() -> int:
     out = args.output or Path("data/output") / f"{args.video.stem}_score.json"
     out.parent.mkdir(parents=True, exist_ok=True)
 
+    if not args.target.strip():
+        print(
+            "エラー: 追跡する人物を指定してください。\n"
+            "  Web: 動画を読み込み → 人物を選ぶ → 譜面を生成\n"
+            "  CLI: --target 0.45,0.35（画面座標 0〜1）",
+            file=sys.stderr,
+        )
+        return 1
+    parts = args.target.replace(" ", "").split(",")
+    if len(parts) != 2:
+        print("エラー: --target は x,y 形式（例: 0.45,0.35）", file=sys.stderr)
+        return 1
+    target_center = (float(parts[0]), float(parts[1]))
+    print(f"追跡ターゲット: ({target_center[0]:.2f}, {target_center[1]:.2f})")
+
     print(f"骨格抽出中: {args.video}")
-    frames, fps = extract_poses(args.video)
+    frames, fps = extract_poses(args.video, target_center=target_center)
     print(f"  → {len(frames)} フレーム @ {fps:.1f} fps")
 
     print("拍解析中...")
     bpm, beat_times = extract_beats(args.video)
-    print(f"  → BPM {bpm:.1f}, {len(beat_times)} 拍")
+    _, duration_sec = get_video_duration(args.video)
+    print(f"  → BPM {bpm:.1f}, 動画 {duration_sec:.1f}s, librosa 拍 {len(beat_times)}")
 
-    score = build_score(args.video, frames, fps, bpm, beat_times)
+    score = build_score(
+        args.video,
+        frames,
+        fps,
+        bpm,
+        beat_times,
+        target_center=target_center,
+        duration_sec=duration_sec,
+    )
     if args.no_frames:
         del score["frames"]
+        print("  → frames[] は省略（精度評価する場合は --no-frames を付けない）", file=sys.stderr)
 
     out.write_text(json.dumps(score, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"譜面を保存しました: {out.resolve()}")
+    print("精度確認: python scripts/evaluate_score.py", args.video, out)
     return 0
 
 

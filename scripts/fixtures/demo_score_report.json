@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "score_version": 1,
+  "source": {
+    "path": "demo",
+    "fps": 30.0
+  },
+  "audio": {
+    "bpm": 120.0,
+    "beat_count": 2
+  },
+  "pose": {
+    "frame_count": 0,
+    "pose_detected_frames_pct": null,
+    "mean_visibility": null,
+    "note": "全フレーム未保存のため骨格メトリクスはスキップ（--reextract-pose で再計算可）"
+  },
+  "beat": {
+    "beat_count": 2,
+    "bpm_estimated": 120.0,
+    "beat_interval_std_ms": 0.0,
+    "beat_interval_mean_ms": 500.0,
+    "beat_interval_vs_bpm_error_pct": 0.0,
+    "max_frame_quantization_ms": 16.7
+  },
+  "counts": {
+    "count_total": 2,
+    "counts_with_core_pose_pct": 100.0,
+    "count_mean_visibility": 0.99,
+    "beat_to_frame_offset_mean_ms": null,
+    "beat_to_frame_offset_max_ms": null,
+    "adjacent_count_pose_delta_mean": 0.0193,
+    "note_frame_quantization": "fps 30.0 のため、拍とフレームのずれは最大約 17ms まで生じ得る"
+  },
+  "summary": {
+    "overall": "usable",
+    "headline": "この動画では譜面として試用できる可能性があります。オーバーレイ動画で最終確認してください。",
+    "grades": {
+      "pose_detection": "unknown",
+      "pose_visibility": "unknown",
+      "beat_stability": "good",
+      "beat_bpm_fit": "good",
+      "count_pose_coverage": "good",
+      "beat_frame_alignment": "unknown"
+    },
+    "weak_points": []
+  },
+  "inputs": {
+    "video": "/Users/ayana/cursor/dance app/scripts/fixtures/demo_score.json",
+    "score": "/Users/ayana/cursor/dance app/scripts/fixtures/demo_score.json"
+  }
+}

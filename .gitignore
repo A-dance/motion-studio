@@ -3,6 +3,9 @@ data/videos/*
 !data/videos/.gitkeep
 data/output/*
 !data/output/.gitkeep
+data/output/**/*_thumbs/
+data/models/*
+!data/models/.gitkeep
 *.mp4
 *.mov
 *.webm
