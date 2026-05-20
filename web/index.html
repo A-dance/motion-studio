@@ -12,12 +12,32 @@
   <div class="dance-root" id="root">
     <header class="dance-header">
       <span class="dance-logo">Motion Studio</span>
+      <span class="header-message" id="headerMessage"></span>
       <div class="dance-status">
         <span class="dot-live"></span>
         <span id="rec-status">LOAD READY</span>
       </div>
     </header>
 
+    <nav class="mode-tabs hidden" id="modeTabs">
+      <button type="button" id="modePreview" class="ghost">Preview</button>
+      <button type="button" id="modePractice" class="primary">Practice</button>
+    </nav>
+
+    <section class="practice-panel hidden" id="practicePanel">
+      <div class="practice-count" id="practiceCount">—</div>
+      <div class="practice-guide-wrap">
+        <canvas id="practiceGuide"></canvas>
+      </div>
+      <div class="practice-controls">
+        <button type="button" id="practicePlay" class="primary">▶ 練習開始</button>
+        <label class="practice-opt"><input type="checkbox" id="loopPhrase" checked /> 譜面全体をループ</label>
+        <label class="practice-opt"><input type="checkbox" id="useVideoAudio" /> 動画の音も使う</label>
+      </div>
+      <p class="practice-hint" id="practiceHint">譜面の全カウントを JSON の拍で再生。骨格は frames があればフレーム間を補間して滑らかに表示します。</p>
+    </section>
+
+    <div id="previewShell">
     <details class="setup-panel" open>
       <summary>Setup — 動画・譜面・人物</summary>
       <div class="setup-inner">
@@ -33,6 +53,9 @@
         </div>
         <p id="scanMeta" class="sheet-meta">動画を読み込むと人物を認識します。</p>
         <div id="personGallery" class="person-gallery"></div>
+        <p class="sheet-meta person-lock-note">
+          人物: いまはフレーム内で<strong>一番大きいシルエット</strong>に自動ロック。クリック指定は今後の Phase で対応予定です。
+        </p>
         <p id="pickStatus" class="pick-status hidden"></p>
         <p id="err" class="error hidden"></p>
       </div>
@@ -74,6 +97,11 @@
             <span class="info-val" id="timeVal">—</span>
           </div>
         </div>
+        <div class="panel-section">
+          <div class="panel-title">Motion Flow</div>
+          <canvas id="motionPreview" width="200" height="240"></canvas>
+          <p id="motionCaption" class="motion-caption">カウントを選ぶと動きをループ表示</p>
+        </div>
         <div class="panel-section" style="flex: 1; border-bottom: none">
           <div class="panel-title">Selected Beat</div>
           <div id="beatInfo">—<br>カウントをクリック</div>
@@ -88,6 +116,7 @@
       </div>
       <div id="sheetTimeline"></div>
     </section>
+    </div><!-- previewShell -->
   </div>
 
   <script type="module" src="/web/js/app.js"></script>

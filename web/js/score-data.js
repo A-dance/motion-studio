@@ -118,14 +118,54 @@ function poseHasJoints(pose) {
   return Object.values(pose).some((v) => v && v.length >= 2);
 }
 
-/** フレーム列から指定秒に最も近い骨格 */
+/** 2 骨格の関節を線形補間（フレーム間のなめらか表示用） */
+function lerpPoseJoints(a, b, t) {
+  if (!a) return b;
+  if (!b) return a;
+  const out = {};
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    const ra = a[k];
+    const rb = b[k];
+    const okA = ra && ra.length >= 2;
+    const okB = rb && rb.length >= 2;
+    if (okA && okB) {
+      const va = ra.length >= 3 ? ra[2] : 1;
+      const vb = rb.length >= 3 ? rb[2] : 1;
+      out[k] = [
+        ra[0] + (rb[0] - ra[0]) * t,
+        ra[1] + (rb[1] - ra[1]) * t,
+        va * (1 - t) + vb * t,
+      ];
+    } else if (okA) {
+      out[k] = [...ra];
+    } else if (okB) {
+      out[k] = [...rb];
+    }
+  }
+  return out;
+}
+
+/** フレーム列から指定秒に最も近い骨格（隣接フレーム間は線形補間） */
 export function poseAtFrameTime(frames, timeSec) {
   if (!frames?.length) return null;
-  let best = frames[0];
-  for (const f of frames) {
-    if (Math.abs(f.time_sec - timeSec) < Math.abs(best.time_sec - timeSec)) best = f;
-  }
-  return best.pose ?? null;
+  if (frames.length === 1) return frames[0].pose ?? null;
+
+  let i = 0;
+  while (i < frames.length - 1 && frames[i + 1].time_sec < timeSec) i += 1;
+
+  const f0 = frames[i];
+  const f1 = frames[Math.min(i + 1, frames.length - 1)];
+  const p0 = f0.pose;
+  const p1 = f1.pose;
+  if (!poseHasJoints(p0)) return p1 ?? p0 ?? null;
+  if (!poseHasJoints(p1) || f1.time_sec <= f0.time_sec) return p0;
+
+  if (timeSec <= f0.time_sec) return p0;
+  if (timeSec >= f1.time_sec) return p1;
+
+  const u = (timeSec - f0.time_sec) / (f1.time_sec - f0.time_sec);
+  return lerpPoseJoints(p0, p1, u);
 }
 
 /** カウントに紐づく骨格（counts[].pose を優先） */
@@ -136,6 +176,10 @@ export function poseForCount(count, frames) {
 }
 
 export function poseAtTime(frames, counts, timeSec) {
+  if (frames?.length >= 2) {
+    const fromFrames = poseAtFrameTime(frames, timeSec);
+    if (poseHasJoints(fromFrames)) return fromFrames;
+  }
   const i = nearestCountIndex(counts, timeSec);
   const fromCount = poseForCount(counts[i], frames);
   if (fromCount) return fromCount;

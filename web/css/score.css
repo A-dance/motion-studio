@@ -65,6 +65,22 @@ body {
   font-weight: 600;
 }
 
+.header-message {
+  flex: 1;
+  font-size: 11px;
+  font-family: "Share Tech Mono", monospace;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 12px;
+  min-width: 0;
+}
+
+.header-message.is-error { color: #ff5577; }
+.header-message.is-ok    { color: var(--accent); }
+
 .dance-status {
   display: flex;
   align-items: center;
@@ -394,7 +410,55 @@ video {
   color: #333;
 }
 
-.phrase-timeline { margin-bottom: 4px; }
+.phrase-timeline { margin-bottom: 12px; }
+
+.phrase-trail-wrap {
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+.phrase-trail {
+  display: block;
+  width: 100%;
+  height: 52px;
+}
+
+.trail-legend {
+  display: flex;
+  gap: 10px;
+  padding: 4px 8px 6px;
+  font-size: 9px;
+  font-family: "Share Tech Mono", monospace;
+  letter-spacing: 0.08em;
+  color: var(--muted-dim);
+  border-top: 1px solid var(--line-soft);
+}
+
+.trail-legend .tl-hand { color: #66ddff; }
+.trail-legend .tl-foot { color: #ffaa22; }
+.trail-legend .tl-hint { margin-left: auto; color: #333; }
+
+#motionPreview {
+  display: block;
+  width: 100%;
+  max-width: 200px;
+  margin: 0 auto;
+  background: #050505;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.motion-caption {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: "Share Tech Mono", monospace;
+  text-align: center;
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
 
 .count-grid {
   display: grid;
@@ -462,7 +526,8 @@ video {
 
 .cb-num {
   font-family: "Share Tech Mono", monospace;
-  font-size: 9px;
+  font-size: 10px;
+  font-weight: 500;
   color: var(--muted);
   display: block;
   line-height: 1;
@@ -479,11 +544,16 @@ video {
 }
 
 .cb-dot {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #222;
   margin: 3px auto 0;
+}
+
+.person-lock-note strong {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .sheet-meta, .pick-status {
@@ -503,3 +573,89 @@ video {
 }
 
 .hidden { display: none !important; }
+
+.mode-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #060606;
+}
+
+.mode-tabs button { min-width: 96px; }
+
+.practice-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px 24px;
+  gap: 12px;
+}
+
+.practice-count {
+  font-family: "Share Tech Mono", monospace;
+  font-size: clamp(42px, 10vw, 64px);
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+  line-height: 1;
+  letter-spacing: 0.05em;
+}
+
+.practice-guide-wrap {
+  flex: 1;
+  min-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #050505;
+  position: relative;
+  overflow: hidden;
+}
+
+.practice-guide-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+#practiceGuide {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+}
+
+.practice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+.practice-opt {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: "Share Tech Mono", monospace;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.practice-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted-dim);
+  font-family: "Share Tech Mono", monospace;
+  margin: 0;
+}
+
+body.mode-practice #previewShell { display: none; }
+body.mode-practice #practicePanel { display: flex; }
+body.mode-preview #practicePanel { display: none; }
