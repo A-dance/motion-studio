@@ -1,6 +1,14 @@
-# アプリケーション要件定義書
+# Motion Studio（ダンス譜面アプリ）
+
+> **開発の正:** このリポジトリ [`A-dance/motion-studio`](https://github.com/A-dance/motion-studio)  
+> **ローカル:** `/Users/ayana/motion-studio` — 手順は [START_HERE.md](./START_HERE.md)  
+> **使わない:** `cursor` モノレポ内の `dance app/`（演習用 `todo-app` などと別物）
 
 自律型ダンス練習プラットフォーム
+
+---
+
+# アプリケーション要件定義書
 
 ---
 

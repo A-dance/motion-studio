@@ -1,36 +1,18 @@
-# GitHub に新リポジトリとして載せる手順
+# GitHub リモート（設定済み）
 
-このフォルダは **`cursor` モノレポから切り出した Motion Studio 専用リポジトリ**です。  
-ローカル Git の履歴（`dance app/` 配下のコミット）は `main` に引き継いでいます。
+リポジトリは作成・push 済みです。
 
-## 1. GitHub で空リポジトリを作る
+| 項目 | 値 |
+|------|-----|
+| **URL** | https://github.com/A-dance/motion-studio |
+| **SSH** | `git@github.com:A-dance/motion-studio.git` |
+| **ブランチ** | `main` |
 
-例: `A-dance/motion-studio`（Private 推奨）
-
-- **README / .gitignore / license は追加しない**（既にローカルにあるため）
-
-## 2. リモートを付けて push
+初回以降の push:
 
 ```bash
 cd /Users/ayana/motion-studio
-
-git remote add origin git@github.com:A-dance/motion-studio.git
-git push -u origin main
+git push
 ```
 
-SSH ではなく HTTPS の場合:
-
-```bash
-git remote add origin https://github.com/A-dance/motion-studio.git
-git push -u origin main
-```
-
-## 3. Cursor で開き直す
-
-- **File → Open Folder** → `/Users/ayana/motion-studio`
-- 旧パス `cursor/dance app` は演習用モノレポ側。今後の開発はこちらを正とする。
-
-## 4. 旧モノレポ（任意）
-
-`cursor` リポジトリの `dance app/` は `MOVED.md` を参照。  
-マージ済みなら、別 PR で `dance app/` 削除またはアーカイブしてよい。
+作業場所の整理 → [START_HERE.md](./START_HERE.md)
