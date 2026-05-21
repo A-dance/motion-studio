@@ -22,7 +22,23 @@ source .venv/bin/activate   # 未作成なら: python3 -m venv .venv && pip inst
 python scripts/serve_preview.py
 ```
 
-ブラウザ: http://127.0.0.1:8765/web/
+ブラウザ: http://127.0.0.1:8765/web/ （`https://` ではなく `http://`）
+
+最初の一歩: http://127.0.0.1:8765/web/ で **Dance Sequence Note** の土台を確認。開発手順は [docs/DANCE_NOTE_STEPS.md](./docs/DANCE_NOTE_STEPS.md)。
+
+**`ERR_CONNECTION_REFUSED` のとき**
+
+1. ターミナルに `譜面プレビュー: http://127.0.0.1:8765/web/` が出てからブラウザを開く
+2. サーバー未起動なら上の `python scripts/serve_preview.py` を実行
+3. ポート競合 → `lsof -i :8765` で古い PID を `kill` するか `--port 8766` で起動
+
+Three.js を更新するとき:
+
+```bash
+npm install three
+cp node_modules/three/build/three.module.js web/vendor/three/
+cp node_modules/three/examples/jsm/controls/OrbitControls.js web/vendor/three/examples/jsm/controls/
+```
 
 ## 要件・設計の正本
 

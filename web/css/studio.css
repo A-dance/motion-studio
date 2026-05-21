@@ -1,0 +1,561 @@
+/* ═══════════════════════════════════════════════════════════
+   Dance Sequence Note — Dark Studio Design
+   ダンサーの感性に合う、洗練されたダークスタジオ
+═══════════════════════════════════════════════════════════ */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=Noto+Sans+JP:wght@400;500&display=swap");
+
+/* ── 変数 ──────────────────────────────────────── */
+:root {
+  --bg:       #0e0c0a;
+  --stage:    #181410;
+  --surface:  #201c18;
+  --surface2: #2c2620;
+  --text:     #ede0cc;
+  --muted:    #6e6458;
+  --gold:     #c8a038;
+  --gold2:    #e4bc58;
+  --pink:     #c08898;
+  --pink2:    #d8a8b8;
+  --blue:     #4888b8;
+  --line:     #383028;
+  --r:        8px;
+}
+
+/* ── リセット ───────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "DM Sans", "Noto Sans JP", sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  overflow: hidden; /* prevent body scroll */
+}
+
+button { font: inherit; cursor: pointer; }
+input  { font: inherit; color: inherit; }
+
+/* ── アプリ外枠 ─────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+/* ════════════════════════════════════════════════════
+   HEADER
+════════════════════════════════════════════════════ */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 20px;
+  height: 46px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.brand-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.brand-title span { color: var(--gold); }
+
+.work-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+}
+
+.work-name-input {
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+  width: 180px;
+  transition: border-color 0.15s;
+}
+.work-name-input::placeholder { color: var(--muted); }
+.work-name-input:focus { outline: none; border-color: var(--gold); }
+
+/* ヘッダーボタン（保存・新規） */
+.btn-hd {
+  padding: 5px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  transition: color 0.12s, border-color 0.12s;
+}
+.btn-hd:hover { color: var(--gold); border-color: var(--gold); }
+
+/* ════════════════════════════════════════════════════
+   MAIN LAYOUT
+════════════════════════════════════════════════════ */
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 62fr 38fr;
+  overflow: hidden;
+}
+
+/* ════════════════════════════════════════════════════
+   LEFT PANEL — 3D STAGE
+════════════════════════════════════════════════════ */
+.panel-stage {
+  display: flex;
+  flex-direction: column;
+  background: var(--stage);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.stage-topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.count-badge {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--gold);
+}
+
+.stage-hint-inline {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+/* Three.js viewport + annotation canvas */
+.stage-wrap {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: var(--stage);
+}
+
+#viewport3d {
+  position: absolute;
+  inset: 0;
+}
+
+/* Three.js renderer は JS で appendChid → size 100% に */
+#viewport3d > canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* 2D アノテーションオーバーレイ */
+#annotCanvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* events handled by stageWrap */
+}
+
+/* canvas-stack--added アニメーション（アイテム追加時フラッシュ） */
+.stage-wrap.canvas-stack--added::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(200, 160, 56, 0.12);
+  border: 1.5px solid rgba(200, 160, 56, 0.4);
+  border-radius: 4px;
+  pointer-events: none;
+  animation: flashIn 0.5s ease forwards;
+}
+@keyframes flashIn {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.stage-foot {
+  padding: 6px 16px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+  line-height: 1.5;
+}
+.stage-foot kbd {
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.65rem;
+  font-family: inherit;
+}
+.stage-foot strong { color: var(--gold); font-weight: 500; }
+
+/* ════════════════════════════════════════════════════
+   RIGHT PANEL — CONTROLS
+════════════════════════════════════════════════════ */
+.panel-ctrl {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* Control Block — 各セクション */
+.cb {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.cb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+
+.cb-title {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cb-btns {
+  display: flex;
+  gap: 5px;
+}
+
+/* フッター */
+.cb-foot {
+  padding: 6px 14px;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+}
+
+.save-hint {
+  font-size: 0.68rem;
+  color: var(--gold);
+}
+
+/* ════════════════════════════════════════════════════
+   PHRASE TIMELINE
+════════════════════════════════════════════════════ */
+.phrase-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 148px;
+  overflow-y: auto;
+}
+.phrase-timeline::-webkit-scrollbar { width: 3px; }
+.phrase-timeline::-webkit-scrollbar-track { background: transparent; }
+.phrase-timeline::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+
+.phrase-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.phrase-label {
+  width: 14px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--gold);
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.phrase-counts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  overflow-x: auto;
+}
+.phrase-counts::-webkit-scrollbar { display: none; }
+
+.count-divider {
+  width: 1px;
+  height: 12px;
+  background: var(--line);
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+/* カウントチップ */
+.count-chip {
+  min-width: 18px;
+  width: 18px;
+  height: 20px;
+  padding: 0;
+  flex-shrink: 0;
+  font-size: 0.58rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.count-chip:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.count-chip.is-active {
+  background: linear-gradient(145deg, #3a2e18, #2c2210);
+  border-color: var(--gold);
+  color: var(--gold2);
+  font-weight: 600;
+}
+.count-chip.has-pose::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--pink2);
+}
+
+.btn-phrase-del {
+  padding: 2px 5px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.65rem;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: color 0.12s, background 0.12s;
+}
+.btn-phrase-del:hover { color: #c03020; background: rgba(200,30,20,0.12); }
+
+.btn-xs-link {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--gold);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.btn-xs-link:hover { opacity: 0.75; }
+
+/* ════════════════════════════════════════════════════
+   POSE SLIDERS
+════════════════════════════════════════════════════ */
+.sp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.sp label {
+  font-size: 0.68rem;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 56px;
+  display: flex;
+  justify-content: space-between;
+}
+.sp label span {
+  color: var(--text);
+  font-weight: 500;
+  min-width: 28px;
+  text-align: right;
+}
+.sp input[type="range"] {
+  flex: 1;
+  height: 3px;
+  appearance: none;
+  background: var(--line);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.sp input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: none;
+  box-shadow: 0 0 4px rgba(200,160,56,0.5);
+}
+.sp input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: none;
+}
+
+/* 見る角度プリセット */
+.view-presets {
+  display: flex;
+  gap: 5px;
+  margin-top: 4px;
+}
+.btn-view {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 0.68rem;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.btn-view:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--surface);
+}
+
+/* 小ボタン */
+.btn-xs {
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 0.68rem;
+  transition: color 0.12s, border-color 0.12s;
+}
+.btn-xs:hover { color: var(--gold); border-color: var(--gold); }
+
+/* ════════════════════════════════════════════════════
+   ADD TOOLBAR
+════════════════════════════════════════════════════ */
+.add-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 0.6rem;
+  transition: border-color 0.12s, color 0.12s, background 0.12s, transform 0.1s;
+  flex-shrink: 0;
+}
+.btn-add svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.btn-add:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--surface);
+  transform: translateY(-1px);
+}
+
+.field-mini {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  color: var(--text);
+  min-width: 0;
+  transition: border-color 0.15s;
+}
+.field-mini::placeholder { color: var(--muted); }
+.field-mini:focus { outline: none; border-color: var(--gold); }
+
+.add-fb {
+  font-size: 0.62rem;
+  color: var(--gold);
+  margin-left: auto;
+  max-width: 120px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ════════════════════════════════════════════════════
+   ITEM CONTROLS (矢印の調整)
+════════════════════════════════════════════════════ */
+#itemControls.item-ctrl--idle { display: none; }
+
+.arrow-sliders { display: flex; flex-direction: column; gap: 3px; }
+
+/* tiltRow / bendRow の表示制御は JS で .hidden を toggle */
+.hidden { display: none !important; }
+
+.btn-del {
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid #583028;
+  background: rgba(88,40,30,0.35);
+  color: #e09080;
+  font-size: 0.68rem;
+  transition: background 0.12s, color 0.12s;
+}
+.btn-del:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-del:not(:disabled):hover { background: rgba(180,50,30,0.4); color: #ffb090; }
+
+/* ════════════════════════════════════════════════════
+   INLINE TEXT EDIT OVERLAY
+════════════════════════════════════════════════════ */
+.inline-edit {
+  position: fixed;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+.inline-edit.hidden { display: none; }
+
+.inline-edit-input {
+  background: rgba(18, 14, 10, 0.94);
+  color: var(--text);
+  border: 1.5px solid var(--gold);
+  border-radius: 7px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 140px;
+  text-align: center;
+  outline: none;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 0 0 3px rgba(200,160,56,0.18);
+}
+
+/* ════════════════════════════════════════════════════
+   CANVAS ITEMS (drawn on annotCanvas)
+   テキストアイテムのデフォルトスタイルは canvas-items.js 側で制御
+   ここは参考用
+════════════════════════════════════════════════════ */

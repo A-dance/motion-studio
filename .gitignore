@@ -16,6 +16,11 @@ data/models/*
 .tools/
 .config/
 
+# Node
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+
 # Python
 .venv/
 venv/

@@ -8,8 +8,10 @@ export const BONES = [
   ["right_shoulder", "right_hip"],
   ["left_shoulder", "left_elbow"],
   ["left_elbow", "left_wrist"],
+  ["left_wrist", "left_hand"],
   ["right_shoulder", "right_elbow"],
   ["right_elbow", "right_wrist"],
+  ["right_wrist", "right_hand"],
   ["left_hip", "left_knee"],
   ["left_knee", "left_ankle"],
   ["right_hip", "right_knee"],
@@ -19,3 +21,5 @@ export const BONES = [
 ];
 
 export const MIN_VISIBILITY = 0.3;
+/** 指先未検出時、手首を前腕方向に延長する比率 */
+export const HAND_EXTEND_RATIO = 0.38;

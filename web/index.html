@@ -3,120 +3,147 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Motion Studio — 動きの譜面</title>
-  <link rel="stylesheet" href="/web/css/score.css" />
+  <title>Danceノート</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <link rel="stylesheet" href="/web/css/studio.css" />
 </head>
 <body>
-  <h1 class="sr-only">ダンス自習ダッシュボード — 骨格オーバーレイと16カウントタイムライン</h1>
+  <div class="app">
 
-  <div class="dance-root" id="root">
-    <header class="dance-header">
-      <span class="dance-logo">Motion Studio</span>
-      <span class="header-message" id="headerMessage"></span>
-      <div class="dance-status">
-        <span class="dot-live"></span>
-        <span id="rec-status">LOAD READY</span>
+    <!-- ヘッダー -->
+    <header class="header">
+      <h1 class="brand-title">Dance <span>Sequence</span> Note</h1>
+      <div class="work-controls">
+        <input type="text" id="workName" class="work-name-input"
+          placeholder="作品名…" autocomplete="off" spellcheck="false" />
+        <button type="button" id="btnSaveWork" class="btn-hd">💾</button>
+        <button type="button" id="btnNewWork"  class="btn-hd">＋</button>
       </div>
     </header>
 
-    <nav class="mode-tabs hidden" id="modeTabs">
-      <button type="button" id="modePreview" class="ghost">Preview</button>
-      <button type="button" id="modePractice" class="primary">Practice</button>
-    </nav>
+    <main class="main">
 
-    <section class="practice-panel hidden" id="practicePanel">
-      <div class="practice-count" id="practiceCount">—</div>
-      <div class="practice-guide-wrap">
-        <canvas id="practiceGuide"></canvas>
-      </div>
-      <div class="practice-controls">
-        <button type="button" id="practicePlay" class="primary">▶ 練習開始</button>
-        <label class="practice-opt"><input type="checkbox" id="loopPhrase" checked /> 譜面全体をループ</label>
-        <label class="practice-opt"><input type="checkbox" id="useVideoAudio" /> 動画の音も使う</label>
-      </div>
-      <p class="practice-hint" id="practiceHint">譜面の全カウントを JSON の拍で再生。骨格は frames があればフレーム間を補間して滑らかに表示します。</p>
-    </section>
-
-    <div id="previewShell">
-    <details class="setup-panel" open>
-      <summary>Setup — 動画・譜面・人物</summary>
-      <div class="setup-inner">
-        <label for="videoPath">Video</label>
-        <input id="videoPath" type="text" value="data/videos/PXL_20260228_101825443.mp4" />
-        <label for="scorePath">Score JSON</label>
-        <input id="scorePath" type="text" value="data/output/PXL_20260228_101825443_score.json" />
-        <div class="row">
-          <button type="button" id="loadBtn" class="primary">Load</button>
-          <button type="button" id="sampleBtn" class="ghost">PXL</button>
-          <button type="button" id="generateBtn" class="primary hidden" disabled>Generate</button>
-          <button type="button" id="rescanBtn" class="ghost hidden">Rescan</button>
+      <!-- ── 左: 3Dステージ + アノテーションオーバーレイ ── -->
+      <section class="panel panel-stage">
+        <div class="stage-topbar">
+          <span class="count-badge" id="currentCountLabel">A – 1</span>
+          <span class="stage-hint-inline" id="stageHintInline">関節ドラッグ: ポーズ · 背景ドラッグ: 視点回転</span>
         </div>
-        <p id="scanMeta" class="sheet-meta">動画を読み込むと人物を認識します。</p>
-        <div id="personGallery" class="person-gallery"></div>
-        <p class="sheet-meta person-lock-note">
-          人物: いまはフレーム内で<strong>一番大きいシルエット</strong>に自動ロック。クリック指定は今後の Phase で対応予定です。
+        <!-- Three.js + 2D アノテーション -->
+        <div class="stage-wrap" id="stageWrap">
+          <div id="viewport3d"></div>
+          <canvas id="annotCanvas" aria-label="矢印・文字レイヤー"></canvas>
+        </div>
+        <p class="stage-foot">
+          <kbd>←</kbd><kbd>→</kbd> カウント移動 &nbsp;·&nbsp;
+          文字は <strong>ダブルクリック</strong> で直接編集 &nbsp;·&nbsp;
+          <kbd>Delete</kbd> で削除
         </p>
-        <p id="pickStatus" class="pick-status hidden"></p>
-        <p id="err" class="error hidden"></p>
-      </div>
-    </details>
-
-    <div class="main-area">
-      <section class="avatar-section">
-        <div class="avatar-canvas" id="avatarCanvas">
-          <div class="grid-overlay"></div>
-          <div class="corner-tl"></div>
-          <div class="corner-tr"></div>
-          <div class="corner-bl"></div>
-          <div class="corner-br"></div>
-          <div class="scan-line"></div>
-          <div class="video-wrap" id="videoWrap">
-            <video id="player" controls playsinline></video>
-            <canvas id="overlay"></canvas>
-          </div>
-        </div>
-        <div class="avatar-toolbar">
-          <span class="tempo-display" id="tempoDisp">♩= — BPM</span>
-          <span class="tempo-display" id="nowLabel">—</span>
-        </div>
       </section>
 
-      <aside class="side-panel">
-        <div class="panel-section">
-          <div class="panel-title">Session</div>
-          <div class="info-row">
-            <span class="info-label">Phrase</span>
-            <span class="info-val" id="phraseVal">—</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Count</span>
-            <span class="info-val" id="countVal">—</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Time</span>
-            <span class="info-val" id="timeVal">—</span>
-          </div>
-        </div>
-        <div class="panel-section">
-          <div class="panel-title">Motion Flow</div>
-          <canvas id="motionPreview" width="200" height="240"></canvas>
-          <p id="motionCaption" class="motion-caption">カウントを選ぶと動きをループ表示</p>
-        </div>
-        <div class="panel-section" style="flex: 1; border-bottom: none">
-          <div class="panel-title">Selected Beat</div>
-          <div id="beatInfo">—<br>カウントをクリック</div>
-        </div>
-      </aside>
-    </div>
+      <!-- ── 右: コントロール（スクロールなし・コンパクト） ── -->
+      <section class="panel panel-ctrl">
 
-    <section class="timeline-section hidden" id="sheetPanel">
-      <div class="timeline-header">
-        <span class="tl-title">16 Count Timeline</span>
-        <span class="tl-mode" id="tlMode">COUNT MODE</span>
-      </div>
-      <div id="sheetTimeline"></div>
-    </section>
-    </div><!-- previewShell -->
+        <!-- ① フレーズ / カウント -->
+        <div class="cb">
+          <div class="cb-head">
+            <span class="cb-title">フレーズ</span>
+            <button type="button" id="btnAddPhrase" class="btn-xs-link">＋追加</button>
+          </div>
+          <div id="phraseTimeline" class="phrase-timeline"></div>
+        </div>
+
+        <!-- ② ポーズ -->
+        <div class="cb">
+          <div class="cb-head">
+            <span class="cb-title">ポーズ</span>
+            <span class="cb-btns">
+              <button type="button" data-preset="reset" class="btn-xs">リセット</button>
+              <button type="button" id="btnCopyCount"  class="btn-xs">次へ →</button>
+            </span>
+          </div>
+          <div class="sp">
+            <label>向き <span id="bodyYawLbl">0°</span></label>
+            <input type="range" id="bodyYaw" min="0" max="359" value="0" />
+          </div>
+          <div class="sp">
+            <label>頭  <span id="headYawLbl">0°</span></label>
+            <input type="range" id="headYaw" min="-90" max="90" value="0" />
+          </div>
+          <div class="view-presets">
+            <button class="btn-view" data-view="front">正面</button>
+            <button class="btn-view" data-view="diag">斜め</button>
+            <button class="btn-view" data-view="side">横</button>
+          </div>
+        </div>
+
+        <!-- ③ 追加ツールバー -->
+        <div class="cb">
+          <div class="cb-head">
+            <span class="cb-title">追加</span>
+            <span class="add-fb" id="addFeedback" aria-live="polite"></span>
+          </div>
+          <div class="add-toolbar">
+            <button type="button" class="btn-add" id="btnAddStraightArrow" title="進む矢印">
+              <svg viewBox="0 0 24 24" fill="none">
+                <line x1="5" y1="19" x2="19" y2="8" stroke="#c8a038" stroke-width="2.8" stroke-linecap="round"/>
+                <polygon points="19,8 12,8 19,15" fill="#c8a038"/>
+              </svg>
+              矢印
+            </button>
+            <button type="button" class="btn-add" id="btnAddSpinArrow" title="回転の矢印">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M12 4a8 8 0 1 0 7 4" stroke="#4888b8" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+                <polygon points="19,8 15,4 23,6" fill="#4888b8"/>
+              </svg>
+              回転
+            </button>
+            <button type="button" class="btn-add" id="btnAddText" title="文字メモ">
+              <svg viewBox="0 0 24 24" fill="none">
+                <text x="5" y="18" font-family="sans-serif" font-size="15" font-weight="700" fill="#be8898">T</text>
+              </svg>
+              文字
+            </button>
+            <input type="text" id="fieldMotion" class="field-mini" placeholder="文字内容…" />
+          </div>
+        </div>
+
+        <!-- ④ 矢印の調整（選択時のみ表示） -->
+        <div id="itemControls" class="cb item-ctrl--idle">
+          <div class="cb-head">
+            <span class="cb-title" id="itemCtrlTitle">矢印の調整</span>
+            <button type="button" id="btnDeleteItem" class="btn-del" disabled>🗑 削除</button>
+          </div>
+          <div class="arrow-sliders">
+            <div class="sp"><label>角度 <span id="dirAngleLbl">90°</span></label>
+              <input type="range" id="dirAngle" min="0" max="359" value="90" /></div>
+            <div class="sp"><label>大きさ <span id="dirPowerLbl">45%</span></label>
+              <input type="range" id="dirPower" min="15" max="100" value="45" /></div>
+            <div class="sp" id="bendRow"><label>曲がり <span id="dirBendLbl">0</span></label>
+              <input type="range" id="dirBend" min="-100" max="100" value="0" /></div>
+            <div class="sp" id="tiltRow"><label>傾き <span id="dirTiltLbl">0°</span></label>
+              <input type="range" id="dirTilt" min="0" max="359" value="0" /></div>
+          </div>
+        </div>
+
+        <!-- フッター -->
+        <div class="cb-foot">
+          <p class="save-hint" id="saveHint"></p>
+        </div>
+
+      </section>
+    </main>
+  </div>
+
+  <!-- インライン文字編集（position:fixed オーバーレイ） -->
+  <div id="inlineEdit" class="inline-edit hidden">
+    <input type="text" id="inlineEditInput" class="inline-edit-input" />
   </div>
 
   <script type="module" src="/web/js/app.js"></script>

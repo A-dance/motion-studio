@@ -1,5 +1,5 @@
 /** 棒人間描画 — 補間アニメ・軌道・動いている部位の強調 */
-import { BONES, MIN_VISIBILITY } from "./constants.js";
+import { BONES, HAND_EXTEND_RATIO, MIN_VISIBILITY } from "./constants.js";
 
 const JOINT_NAMES = [
   "nose",
@@ -9,6 +9,8 @@ const JOINT_NAMES = [
   "right_elbow",
   "left_wrist",
   "right_wrist",
+  "left_hand",
+  "right_hand",
   "left_hip",
   "right_hip",
   "left_knee",
@@ -21,6 +23,8 @@ const MOTION_JOINTS = [
   "nose",
   "left_shoulder",
   "right_shoulder",
+  "left_hand",
+  "right_hand",
   "left_wrist",
   "right_wrist",
   "left_elbow",
@@ -32,7 +36,7 @@ const MOTION_JOINTS = [
   "left_ankle",
   "right_ankle",
 ];
-const EXTREMITY_DOTS = ["left_wrist", "right_wrist", "left_ankle", "right_ankle"];
+const EXTREMITY_DOTS = ["left_hand", "right_hand", "left_ankle", "right_ankle"];
 const HEAD_DOT = "nose";
 const MOTION_THRESH = 0.004;
 /** 関節間を長さ方向に何分割するか（上限）。「太さ」ではなく骨の長さに沿った本数 */
@@ -41,10 +45,17 @@ const BONE_LENGTH_SLICES_MAX = 28;
 const BONE_CROSS_STRANDS = 4;
 /** 動き矢印は混線防止のため上位だけ描画 */
 const MOTION_ARROW_MAX_JOINTS = 7;
+/** 過去側オニオンスキンの枚数（古いほど薄い） */
+export const ONION_PAST_LAYERS = 4;
+/** 未来側（任意・より薄く） */
+export const ONION_FUTURE_LAYERS = 2;
+const ONION_ALPHA_MIN = 0.05;
+const ONION_ALPHA_MAX = 0.26;
+const ONION_FUTURE_ALPHA_MAX = 0.14;
 
 const TRAIL_JOINTS = [
-  { name: "left_wrist", color: "#66ddff", label: "L hand" },
-  { name: "right_wrist", color: "#00ccff", label: "R hand" },
+  { name: "left_hand", color: "#66ddff", label: "L hand" },
+  { name: "right_hand", color: "#00ccff", label: "R hand" },
   { name: "left_ankle", color: "#ffaa22", label: "L foot" },
   { name: "right_ankle", color: "#ff8844", label: "R foot" },
 ];
@@ -56,6 +67,8 @@ const LIMB_STROKE = {
   right_elbow: "#00ccff",
   left_wrist: "#66ddff",
   right_wrist: "#66ddff",
+  left_hand: "#99eeff",
+  right_hand: "#33ddff",
   left_hip: "#00ff88",
   right_hip: "#00ff88",
   left_knee: "#ffcc44",
@@ -69,6 +82,27 @@ function isJointVisible(raw) {
   if (!raw || raw.length < 2) return false;
   if (raw.length >= 3 && raw[2] < MIN_VISIBILITY) return false;
   return true;
+}
+
+/** 手先（人差し指）を補完。旧譜面は手首から前腕方向に延長 */
+export function enrichPoseHands(pose) {
+  if (!pose) return pose;
+  const out = { ...pose };
+  for (const side of ["left", "right"]) {
+    const key = `${side}_hand`;
+    if (isJointVisible(out[key])) continue;
+    const wrist = out[`${side}_wrist`];
+    const elbow = out[`${side}_elbow`];
+    if (!isJointVisible(wrist) || !isJointVisible(elbow)) continue;
+    const fx = wrist[0] - elbow[0];
+    const fy = wrist[1] - elbow[1];
+    const forearm = Math.hypot(fx, fy);
+    if (forearm < 1e-5) continue;
+    const ext = HAND_EXTEND_RATIO * forearm;
+    const vis = Math.min(wrist[2] ?? 1, elbow[2] ?? 1) * 0.85;
+    out[key] = [wrist[0] + (fx / forearm) * ext, wrist[1] + (fy / forearm) * ext, vis];
+  }
+  return out;
 }
 
 function visibleJointPoints(pose) {
@@ -102,8 +136,8 @@ export function easeInOutSine(t) {
 
 /** 2ポーズ間を補間（カウント間の「動き」を可視化する核心） */
 export function lerpPose(a, b, t) {
-  if (!a) return b;
-  if (!b) return a;
+  if (!a) return enrichPoseHands(b);
+  if (!b) return enrichPoseHands(a);
   const out = {};
   for (const name of JOINT_NAMES) {
     const ra = a[name];
@@ -112,18 +146,22 @@ export function lerpPose(a, b, t) {
     const okB = isJointVisible(rb);
     if (okA && okB) {
       const vis = Math.min(ra[2] ?? 1, rb[2] ?? 1);
-      out[name] = [
+      const row = [
         ra[0] + (rb[0] - ra[0]) * t,
         ra[1] + (rb[1] - ra[1]) * t,
         vis,
       ];
+      if (ra.length > 3 && rb.length > 3) row.push(ra[3] + (rb[3] - ra[3]) * t);
+      else if (ra.length > 3) row.push(ra[3]);
+      else if (rb.length > 3) row.push(rb[3]);
+      out[name] = row;
     } else if (okA) {
       out[name] = [...ra];
     } else if (okB) {
       out[name] = [...rb];
     }
   }
-  return out;
+  return enrichPoseHands(out);
 }
 
 function jointMotion(prev, curr, name) {
@@ -339,6 +377,50 @@ function drawMotionArrow(ctx, from, to, color, width = 2, scale = 1) {
   ctx.restore();
 }
 
+/**
+ * オニオンスキン — poses は古い順。alpha を段階的に上げて重ねる。
+ */
+export function drawOnionSkinLayers(ctx, poses, w, h, options = {}) {
+  const {
+    mapFn = null,
+    alphaMin = ONION_ALPHA_MIN,
+    alphaMax = ONION_ALPHA_MAX,
+    colorLimbs = false,
+    lengthSlicesMax = 11,
+    lengthSliceMinPx = 12,
+    lineScaleMin = 0.78,
+    lineScaleMax = 0.9,
+  } = options;
+  const list = (poses || []).filter((p) => p && visibleJointPoints(p).length);
+  const n = list.length;
+  for (let i = 0; i < n; i += 1) {
+    const alpha = n <= 1 ? alphaMax : alphaMin + ((alphaMax - alphaMin) * (i + 1)) / n;
+    const lineScale =
+      n <= 1 ? lineScaleMax : lineScaleMin + ((lineScaleMax - lineScaleMin) * (i + 1)) / n;
+    drawPoseSkeleton(ctx, list[i], w, h, {
+      mapFn,
+      alpha,
+      lineScale,
+      showDots: "none",
+      showShadow: false,
+      colorLimbs,
+      lengthSlicesMax,
+      lengthSliceMinPx,
+    });
+  }
+}
+
+/** A→B 補間上の過去側ゴースト（モーションプレビュー用） */
+export function buildMorphOnionPast(poseA, poseB, t, steps = ONION_PAST_LAYERS) {
+  if (!poseA || !poseB) return [];
+  const out = [];
+  for (let i = steps; i >= 1; i -= 1) {
+    const tt = Math.max(0, t - (i / steps) * 0.38);
+    out.push(lerpPose(poseA, poseB, easeInOutSine(tt)));
+  }
+  return out;
+}
+
 function drawMotionArrows(ctx, prevPose, pose, w, h, mapFn) {
   if (!prevPose || !pose) return;
   const ref = Math.min(w, h);
@@ -380,6 +462,8 @@ function drawPoseSkeleton(ctx, pose, w, h, options = {}) {
     crossStrands: crossStrandsOpt = null,
   } = options;
   if (!pose) return;
+  pose = enrichPoseHands(pose);
+  const ref = refPose ? enrichPoseHands(refPose) : null;
 
   const wRef = w * lineScale;
   const lengthSlicesMax =
@@ -399,8 +483,8 @@ function drawPoseSkeleton(ctx, pose, w, h, options = {}) {
     let stroke = colorLimbs ? boneColor(a) : "rgba(0, 255, 136, 0.95)";
     let boneAlpha = 1;
 
-    if (motionAware && refPose) {
-      const m = boneMotion(refPose, pose, a, b);
+    if (motionAware && ref) {
+      const m = boneMotion(ref, pose, a, b);
       const s = motionStrength(m);
       boneAlpha = 0.18 + s * 0.82;
       if (s > 0.35) stroke = boneColor(a);
@@ -472,7 +556,7 @@ function drawPoseSkeleton(ctx, pose, w, h, options = {}) {
     for (const name of EXTREMITY_DOTS) {
       const p = jointXY(pose, name, w, h, mapFn);
       if (!p) continue;
-      const m = refPose ? jointMotion(refPose, pose, name) : MOTION_THRESH;
+      const m = ref ? jointMotion(ref, pose, name) : MOTION_THRESH;
       const s = motionAware ? motionStrength(m) : 1;
       ctx.fillStyle = s > 0.3 ? "#ffcc44" : "rgba(255, 204, 68, 0.35)";
       ctx.beginPath();
@@ -484,17 +568,28 @@ function drawPoseSkeleton(ctx, pose, w, h, options = {}) {
   ctx.restore();
 }
 
-/** 動画オーバーレイ — ゴースト → 本体 → 矢印（上）で細部が隠れない */
-export function drawPose(ctx, pose, w, h, prevPose = null, refForMotion = null) {
-  const ref = refForMotion ?? prevPose;
-  if (prevPose && prevPose !== pose) {
-    drawPoseSkeleton(ctx, prevPose, w, h, {
-      alpha: 0.1,
-      lineScale: 0.85,
-      showDots: "none",
-      showShadow: false,
-      lengthSlicesMax: 11,
-      lengthSliceMinPx: 12,
+/** 動画オーバーレイ — オニオン（薄→濃）→ 本体 → 矢印 */
+export function drawPose(ctx, pose, w, h, prevPose = null, refForMotion = null, onionOpts = {}) {
+  const onionPast = onionOpts.onionPast ?? [];
+  const onionFuture = onionOpts.onionFuture ?? [];
+  const past =
+    onionPast.length > 0
+      ? onionPast
+      : prevPose && prevPose !== pose
+        ? [prevPose]
+        : [];
+  const ref =
+    refForMotion ??
+    (past.length ? past[past.length - 1] : null) ??
+    prevPose;
+
+  drawOnionSkinLayers(ctx, past, w, h);
+  if (onionFuture.length) {
+    drawOnionSkinLayers(ctx, onionFuture, w, h, {
+      alphaMin: 0.03,
+      alphaMax: ONION_FUTURE_ALPHA_MAX,
+      lineScaleMin: 0.76,
+      lineScaleMax: 0.86,
     });
   }
   drawPoseSkeleton(ctx, pose, w, h, {
@@ -504,8 +599,8 @@ export function drawPose(ctx, pose, w, h, prevPose = null, refForMotion = null) 
     refPose: ref,
     motionAware: !!ref,
   });
-  if (prevPose && prevPose !== pose) {
-    drawMotionArrows(ctx, prevPose, pose, w, h, null);
+  if (ref && ref !== pose) {
+    drawMotionArrows(ctx, ref, pose, w, h, null);
   }
 }
 
@@ -517,23 +612,29 @@ export function drawMotionPreview(ctx, w, h, poseA, poseB, t, timelineView) {
   if (!poseA || !poseB || !timelineView) return;
 
   const mid = lerpPose(poseA, poseB, easeInOutSine(t));
+  const onionPast = buildMorphOnionPast(poseA, poseB, t);
+  const onionFuture = [];
+  for (let i = 1; i <= ONION_FUTURE_LAYERS; i += 1) {
+    const tt = Math.min(1, t + (i / ONION_FUTURE_LAYERS) * 0.28);
+    onionFuture.push(lerpPose(poseA, poseB, easeInOutSine(tt)));
+  }
 
-  drawPoseSkeleton(ctx, poseA, w, h, {
+  drawOnionSkinLayers(ctx, onionPast, w, h, {
     mapFn: timelineView,
-    alpha: 0.1,
-    showDots: "none",
-    showShadow: false,
+    alphaMin: 0.04,
+    alphaMax: 0.22,
     lengthSlicesMax: 9,
     lengthSliceMinPx: 12,
   });
-  drawPoseSkeleton(ctx, poseB, w, h, {
-    mapFn: timelineView,
-    alpha: 0.1,
-    showDots: "none",
-    showShadow: false,
-    lengthSlicesMax: 9,
-    lengthSliceMinPx: 12,
-  });
+  if (onionFuture.length) {
+    drawOnionSkinLayers(ctx, onionFuture, w, h, {
+      mapFn: timelineView,
+      alphaMin: 0.03,
+      alphaMax: ONION_FUTURE_ALPHA_MAX,
+      lengthSlicesMax: 8,
+      lengthSliceMinPx: 13,
+    });
+  }
 
   drawPoseSkeleton(ctx, mid, w, h, {
     mapFn: timelineView,
@@ -547,19 +648,6 @@ export function drawMotionPreview(ctx, w, h, poseA, poseB, t, timelineView) {
   });
 
   drawMotionArrows(ctx, poseA, mid, w, h, timelineView);
-
-  for (let i = 2; i <= 4; i += 1) {
-    const tt = Math.max(0, t - i * 0.09);
-    const ghost = lerpPose(poseA, poseB, easeInOutSine(tt));
-    for (const name of EXTREMITY_DOTS) {
-      const p = jointXY(ghost, name, w, h, timelineView);
-      if (!p) continue;
-      ctx.fillStyle = `rgba(255, 170, 0, ${0.22 - i * 0.04})`;
-      ctx.beginPath();
-      ctx.arc(p[0], p[1], 1.8, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
 }
 
 /** 16カウントの手足軌道（時間軸 = 横、動き = 縦） */
@@ -638,7 +726,7 @@ export function drawPoseOnCanvas(canvas, pose) {
   drawPoseSkeleton(ctx, pose, w, h, { mapFn, showDots: "extremities", colorLimbs: true });
 }
 
-export function drawCountPoseOnCanvas(canvas, prevPose, pose, timelineView) {
+export function drawCountPoseOnCanvas(canvas, pose, timelineView, onionPast = []) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
@@ -646,28 +734,27 @@ export function drawCountPoseOnCanvas(canvas, prevPose, pose, timelineView) {
   ctx.fillRect(0, 0, w, h);
   if (!pose || !timelineView) return;
 
-  if (prevPose) {
-    drawPoseSkeleton(ctx, prevPose, w, h, {
-      mapFn: timelineView,
-      alpha: 0.12,
-      lineScale: 0.85,
-      showDots: "none",
-      showShadow: false,
-      lengthSlicesMax: 9,
-      lengthSliceMinPx: 12,
-    });
-  }
+  const past = (onionPast || []).filter(Boolean);
+  const ref = past.length ? past[past.length - 1] : null;
+
+  drawOnionSkinLayers(ctx, past, w, h, {
+    mapFn: timelineView,
+    alphaMin: 0.05,
+    alphaMax: 0.2,
+    lengthSlicesMax: 9,
+    lengthSliceMinPx: 12,
+  });
 
   drawPoseSkeleton(ctx, pose, w, h, {
     mapFn: timelineView,
     showDots: "extremities",
     showShadow: false,
     colorLimbs: true,
-    refPose: prevPose,
-    motionAware: !!prevPose,
+    refPose: ref,
+    motionAware: !!ref,
     lengthSlicesMax: 22,
     lengthSliceMinPx: 7.5,
   });
 
-  drawMotionArrows(ctx, prevPose, pose, w, h, timelineView);
+  if (ref) drawMotionArrows(ctx, ref, pose, w, h, timelineView);
 }

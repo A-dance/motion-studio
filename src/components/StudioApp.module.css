@@ -1,0 +1,382 @@
+/* ═══════════════════════════════════════════════════════
+   StudioApp.module.css  — ダンス譜面エディタ
+   最大 3D ビュー・コンパクト右パネル
+═══════════════════════════════════════════════════════ */
+
+/* ── ルート ──────────────────────────────────────────── */
+.app {
+  display:         flex;
+  flex-direction:  column;
+  height:          100dvh;
+  background:      #0d0b09;
+  color:           #e0c8d4;
+  font-family:     "Inter", "Helvetica Neue", sans-serif;
+  font-size:       13px;
+  overflow:        hidden;
+  user-select:     none;
+}
+
+/* ── ヘッダー ─────────────────────────────────────────── */
+.header {
+  display:         flex;
+  align-items:     center;
+  padding:         0 14px;
+  height:          38px;
+  background:      #1a1310;
+  border-bottom:   1px solid #3a2820;
+  flex-shrink:     0;
+  gap:             12px;
+}
+
+.brand {
+  font-size:   14px;
+  font-weight: 700;
+  color:       #e0b8c0;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin:      0;
+}
+.brand span { color: #c87898; }
+
+.workControls { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.workNameInput {
+  background:     #271e1a;
+  border:         1px solid #4a2e20;
+  color:          #d8c0c4;
+  border-radius:  5px;
+  padding:        3px 8px;
+  font-size:      12px;
+  width:          140px;
+  outline:        none;
+}
+.workNameInput:focus { border-color: #c87898; }
+.btnHd {
+  background:    #271e1a;
+  border:        1px solid #4a2e20;
+  color:         #c8a0a8;
+  border-radius: 5px;
+  padding:       3px 8px;
+  cursor:        pointer;
+  font-size:     13px;
+  line-height:   1;
+  transition:    background .15s;
+}
+.btnHd:hover { background: #382820; }
+
+/* ── メイン ─────────────────────────────────────────── */
+.main {
+  display:   grid;
+  grid-template-columns: 1fr 230px;
+  flex:      1;
+  overflow:  hidden;
+  min-height: 0;
+}
+
+/* ── 3D ステージパネル ───────────────────────────────── */
+.panelStage {
+  display:         flex;
+  flex-direction:  column;
+  overflow:        hidden;
+  min-height:      0;
+}
+
+.stageTopBar {
+  display:       flex;
+  align-items:   center;
+  padding:       5px 12px;
+  gap:           12px;
+  background:    #160f0c;
+  border-bottom: 1px solid #2a1810;
+  flex-shrink:   0;
+}
+.countBadge {
+  font-size:   15px;
+  font-weight: 700;
+  color:       #e8b0c0;
+  letter-spacing: .05em;
+  min-width:   54px;
+}
+.stageHint { font-size: 11px; color: #806060; }
+
+.stageWrap {
+  flex:      1;
+  position:  relative;
+  overflow:  hidden;
+  cursor:    crosshair;
+  min-height: 0;
+}
+.viewport3d {
+  position: absolute;
+  inset:    0;
+}
+.annotCanvas {
+  position:       absolute;
+  inset:          0;
+  width:          100%;
+  height:         100%;
+  pointer-events: none;
+}
+.stageFoot {
+  padding:       5px 12px;
+  font-size:     11px;
+  color:         #604848;
+  background:    #160f0c;
+  border-top:    1px solid #2a1810;
+  flex-shrink:   0;
+  margin:        0;
+}
+.stageFoot kbd {
+  background:    #2a1e18;
+  border:        1px solid #4a2820;
+  border-radius: 3px;
+  padding:       0 5px;
+  font-size:     10px;
+  color:         #c8a0a0;
+}
+
+/* ── 右コントロールパネル ────────────────────────────── */
+.panelCtrl {
+  display:        flex;
+  flex-direction: column;
+  overflow-y:     auto;
+  overflow-x:     hidden;
+  background:     #15100d;
+  border-left:    1px solid #2a1810;
+  gap:            1px;
+  flex-shrink:    0;
+}
+.panelCtrl::-webkit-scrollbar { width: 4px; }
+.panelCtrl::-webkit-scrollbar-thumb { background: #3a2018; border-radius: 2px; }
+
+/* ── カードブロック ─────────────────────────────────── */
+.cb {
+  padding:       10px 12px 12px;
+  background:    #1a1310;
+  border-bottom: 1px solid #2a1810;
+  flex-shrink:   0;
+}
+.cbHead {
+  display:     flex;
+  align-items: center;
+  gap:         6px;
+  margin-bottom: 8px;
+}
+.cbTitle {
+  font-size:   10px;
+  font-weight: 700;
+  color:       #806868;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  flex:        1;
+}
+.cbBtns { display: flex; gap: 4px; }
+
+/* ── フレーズタイムライン ─────────────────────────────── */
+.phraseTimeline { display: flex; flex-direction: column; gap: 8px; }
+.phraseRow {
+  display:     flex;
+  align-items: flex-start;
+  gap:         4px;
+}
+.phraseLabel {
+  font-size:   10px;
+  font-weight: 700;
+  color:       #b88898;
+  min-width:   18px;
+  text-align:  center;
+  padding-top: 2px;
+}
+.phraseCounts {
+  display:   flex;
+  flex-wrap: wrap;
+  gap:       2px;
+  flex:      1;
+}
+.countDivider {
+  width:      100%;
+  height:     0;
+  margin:     0;
+}
+.countChip {
+  width:         18px;
+  height:        18px;
+  font-size:     9px;
+  background:    #251a16;
+  border:        1px solid #3a2420;
+  border-radius: 3px;
+  color:         #907070;
+  cursor:        pointer;
+  transition:    background .12s, border-color .12s;
+  padding:       0;
+  line-height:   1;
+}
+.countChip:hover   { background: #302020; border-color: #6a3820; }
+.countChip.active  { background: #6a2030; border-color: #cc4060; color: #ffb8c8; font-weight: 700; }
+.countChip.hasPose { background: #2a2018; border-color: #6a4828; color: #c8a870; }
+.countChip.active.hasPose { background: #6a2030; border-color: #cc4060; color: #ffb8c8; }
+
+.btnPhraseDel {
+  background:    transparent;
+  border:        1px solid #3a2020;
+  color:         #804040;
+  border-radius: 3px;
+  width:         16px;
+  height:        16px;
+  font-size:     10px;
+  cursor:        pointer;
+  padding:       0;
+  line-height:   1;
+  flex-shrink:   0;
+}
+.btnPhraseDel:hover { background: #3a1818; color: #dd5050; }
+
+/* ── ポーズ管理 ────────────────────────────────────────── */
+.dirRow {
+  display: flex;
+  gap:     3px;
+  margin-bottom: 6px;
+}
+.btnDir {
+  flex:          1;
+  padding:       5px 0;
+  background:    #251a16;
+  border:        1px solid #3a2420;
+  border-radius: 4px;
+  color:         #b88898;
+  font-size:     11px;
+  font-weight:   600;
+  cursor:        pointer;
+  transition:    background .12s;
+}
+.btnDir:hover  { background: #382420; }
+.activDir { background: #6a2030 !important; border-color: #cc4060 !important; color: #ffb8c8 !important; }
+
+.dirHint {
+  font-size:  10px;
+  color:      #705060;
+  margin:     0;
+}
+
+/* ── 追加ツールバー ────────────────────────────────────── */
+.addToolbar {
+  display:   grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap:       4px;
+}
+.btnAdd {
+  display:        flex;
+  flex-direction: column;
+  align-items:    center;
+  gap:            2px;
+  padding:        7px 4px 5px;
+  background:     #201614;
+  border:         1px solid #3a2420;
+  border-radius:  6px;
+  color:          #c8a8b0;
+  font-size:      10px;
+  cursor:         pointer;
+  transition:     background .12s;
+}
+.btnAdd:hover { background: #302020; }
+.btnAdd svg { width: 26px; height: 26px; }
+
+.fieldMini {
+  grid-column:   1 / -1;
+  background:    #201614;
+  border:        1px solid #3a2420;
+  border-radius: 5px;
+  color:         #d8c0c4;
+  padding:       5px 8px;
+  font-size:     11px;
+  outline:       none;
+  user-select:   text;
+}
+.fieldMini:focus { border-color: #c87898; }
+.addFb { font-size: 10px; color: #80b860; }
+
+/* ── 矢印調整スライダー ─────────────────────────────── */
+.sp { margin-bottom: 6px; }
+.sp label {
+  display:         flex;
+  justify-content: space-between;
+  font-size:       11px;
+  color:           #b09090;
+  margin-bottom:   2px;
+}
+.sp label span { color: #c8a870; font-size: 10px; }
+.sp input[type=range] {
+  width:    100%;
+  height:   4px;
+  cursor:   pointer;
+  accent-color: #c87898;
+}
+
+.btnDel {
+  background:    transparent;
+  border:        1px solid #4a2020;
+  color:         #a04040;
+  border-radius: 4px;
+  padding:       2px 6px;
+  font-size:     11px;
+  cursor:        pointer;
+}
+.btnDel:hover { background: #3a1818; color: #dd5050; }
+
+/* ── 共通 小ボタン ──────────────────────────────────── */
+.btnXs {
+  background:    #251a16;
+  border:        1px solid #4a2820;
+  color:         #c8a0a8;
+  border-radius: 4px;
+  padding:       2px 7px;
+  font-size:     11px;
+  cursor:        pointer;
+  line-height:   1;
+  transition:    background .12s;
+}
+.btnXs:hover { background: #382020; }
+.btnXsLink {
+  background:  transparent;
+  border:      none;
+  color:       #a07080;
+  font-size:   11px;
+  cursor:      pointer;
+  padding:     0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.btnXsLink:hover { color: #e08898; }
+
+/* ── フッター ─────────────────────────────────────────── */
+.cbFoot {
+  padding:     8px 12px;
+  min-height:  26px;
+  flex-shrink: 0;
+  display:     flex;
+  align-items: center;
+}
+.saveMsg {
+  font-size:  11px;
+  color:      #70c070;
+  animation:  fadeOut 2s 0.5s forwards;
+}
+@keyframes fadeOut { to { opacity: 0; } }
+
+/* ── インライン編集 ────────────────────────────────────── */
+.inlineEdit {
+  position:  fixed;
+  z-index:   999;
+  transform: translate(-50%, -50%);
+}
+.inlineInput {
+  background:    #1e2a22;
+  border:        2px solid #50c870;
+  border-radius: 4px;
+  color:         #e0f0e0;
+  font-size:     15px;
+  padding:       4px 8px;
+  outline:       none;
+  min-width:     120px;
+  user-select:   text;
+  box-shadow:    0 2px 12px rgba(0,0,0,.6);
+}

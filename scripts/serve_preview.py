@@ -11,6 +11,7 @@ http://127.0.0.1:8765/web/
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import re
@@ -23,18 +24,20 @@ from urllib.parse import parse_qs, unquote, urlparse
 ROOT = Path(__file__).resolve().parent.parent
 ROOT_RESOLVED = ROOT.resolve()
 DEFAULT_PORT = 8765
-
-sys.path.insert(0, str(ROOT / "scripts"))
-from score_lib import (  # noqa: E402
-    build_score,
-    detect_poses_at_time,
-    extract_beats,
-    extract_poses,
-    get_video_duration,
-    scan_people_in_video,
-)
 DEFAULT_VIDEO = "data/videos/PXL_20260228_101825443.mp4"
 DEFAULT_SCORE = "data/output/PXL_20260228_101825443_score.json"
+
+_score_lib = None
+
+
+def get_score_lib():
+    """MediaPipe 等の重い依存は API 初回時だけ読み込む（静的配信は即起動）。"""
+    global _score_lib
+    if _score_lib is None:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import score_lib as _score_lib  # noqa: E402
+
+    return _score_lib
 
 
 def resolve_under_root(rel_path: str) -> Path | None:
@@ -124,7 +127,8 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
             return
 
         try:
-            candidates = detect_poses_at_time(video_path, time_sec, click=click)
+            sl = get_score_lib()
+            candidates = sl.detect_poses_at_time(video_path, time_sec, click=click)
         except Exception as exc:  # noqa: BLE001
             self.send_json(500, {"error": str(exc)})
             return
@@ -146,7 +150,8 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
             self.send_json(404, {"error": f"動画が見つかりません: {video_rel}"})
             return
         try:
-            people = scan_people_in_video(video_path)
+            sl = get_score_lib()
+            people = sl.scan_people_in_video(video_path)
         except Exception as exc:  # noqa: BLE001
             self.send_json(500, {"error": str(exc)})
             return
@@ -185,10 +190,11 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
             out_path = ROOT / "data" / "output" / f"{video_path.stem}_score.json"
 
         try:
-            frames, fps = extract_poses(video_path, target_center=target_center)
-            bpm, beat_times = extract_beats(video_path)
-            _, duration_sec = get_video_duration(video_path)
-            score = build_score(
+            sl = get_score_lib()
+            frames, fps = sl.extract_poses(video_path, target_center=target_center)
+            bpm, beat_times = sl.extract_beats(video_path)
+            _, duration_sec = sl.get_video_duration(video_path)
+            score = sl.build_score(
                 video_path,
                 frames,
                 fps,
@@ -295,14 +301,25 @@ def main() -> int:
         args.video = DEFAULT_VIDEO
 
     os.chdir(ROOT)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), RangeHTTPRequestHandler)
+    print("起動中…", flush=True)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), RangeHTTPRequestHandler)
+    except OSError as exc:
+        if exc.errno == errno.EADDRINUSE:
+            print(f"ポート {args.port} はすでに使われています。", file=sys.stderr)
+            print(f"  すでにサーバーが動いている場合 → http://127.0.0.1:{args.port}/web/ を開く", file=sys.stderr)
+            print("  止めてから再起動 → lsof -i :{0} で PID を確認し kill".format(args.port), file=sys.stderr)
+            print(f"  別ポートで起動 → python scripts/serve_preview.py --port {args.port + 1}", file=sys.stderr)
+            return 1
+        raise
 
     from urllib.parse import quote
 
-    url = f"http://127.0.0.1:{args.port}/web/?video={quote(args.video)}&score={quote(args.score)}"
-    print(f"譜面プレビュー: {url}")
-    print("終了: Ctrl+C")
-    print(f"ルート: {ROOT.resolve()}")
+    url = f"http://127.0.0.1:{args.port}/web/"
+    print(f"譜面プレビュー: {url}", flush=True)
+    print("終了: Ctrl+C", flush=True)
+    print(f"ルート: {ROOT.resolve()}", flush=True)
+    print("（動画→譜面 API は初回だけ数十秒かかることがあります）", flush=True)
 
     if args.open:
         webbrowser.open(url)

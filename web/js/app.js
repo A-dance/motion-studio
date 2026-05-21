@@ -1,672 +1,638 @@
 /**
- * Motion Studio — 緑骨格 + 16カウント（dance_training_dashboard 準拠 UI）
+ * app.js — Dance Sequence Note メインアプリ
+ *
+ * アーキテクチャ:
+ *   pose-3d.js  → Three.js 3D アバター（ライト・シャドウ・関節ドラッグ・オービット）
+ *   canvas-items.js → 2D アノテーション（矢印・文字）を #annotCanvas に描画
+ *   stageWrap   → 全ポインターイベントを一元管理（アノテーション → 関節 → オービット）
  */
+import { STAND_POSE, clonePose, createStage } from "./pose-3d.js";
 import {
-  buildTimelineView,
-  drawCountPoseOnCanvas,
-  drawMotionPreview,
-  drawPose,
-  drawPoseOnCanvas,
-  easeInOutSine,
-  lerpPose,
-} from "./pose-render.js";
-import { createPracticeController } from "./practice.js";
-import {
-  countDisplayLabel,
-  fetchJson,
-  fetchJsonPost,
-  loadScoreJson,
-  nearestCountIndex,
-  poseAtTime,
-} from "./score-data.js";
+  createItem,
+  dragItemArcStart,
+  dragItemBendCP,
+  dragItemRotate,
+  dragItemTip,
+  hitTestItems,
+  drawAnnotCanvas,
+} from "./canvas-items.js";
 
-const UNIFORM_SLOTS = 16;
+// ─── DOM ──────────────────────────────────────────────────
+const stageWrap   = document.getElementById("stageWrap");
+const viewport3d  = document.getElementById("viewport3d");
+const annotCanvas = document.getElementById("annotCanvas");
 
-const $ = (id) => document.getElementById(id);
+const bodyYawEl  = document.getElementById("bodyYaw");
+const bodyYawLbl = document.getElementById("bodyYawLbl");
+const headYawEl  = document.getElementById("headYaw");
+const headYawLbl = document.getElementById("headYawLbl");
 
-/** 動画の総尺（秒）。未ロード時は骨格フレーム／譜面から推定 */
-function getVideoDurationSec() {
-  const d = video.duration;
-  if (Number.isFinite(d) && d > 0) return d;
-  if (frames?.length) {
-    const last = frames[frames.length - 1]?.time_sec;
-    if (last != null && Number.isFinite(last)) return Math.max(last, 0.001);
-  }
-  if (score?.counts?.length) {
-    const t = score.counts[score.counts.length - 1]?.time_sec;
-    if (t != null && Number.isFinite(t)) return Math.max(t, 0.001);
-  }
-  return 0;
+const dirAngle    = document.getElementById("dirAngle");
+const dirAngleLbl = document.getElementById("dirAngleLbl");
+const dirPower    = document.getElementById("dirPower");
+const dirPowerLbl = document.getElementById("dirPowerLbl");
+const dirBend     = document.getElementById("dirBend");
+const dirBendLbl  = document.getElementById("dirBendLbl");
+const dirTilt     = document.getElementById("dirTilt");
+const dirTiltLbl  = document.getElementById("dirTiltLbl");
+const bendRow     = document.getElementById("bendRow");
+const tiltRow     = document.getElementById("tiltRow");
+
+const itemControls  = document.getElementById("itemControls");
+const itemCtrlTitle = document.getElementById("itemCtrlTitle");
+const btnDeleteItem = document.getElementById("btnDeleteItem");
+
+const addFeedback   = document.getElementById("addFeedback");
+const countLabel    = document.getElementById("currentCountLabel");
+const workNameEl    = document.getElementById("workName");
+const saveHint      = document.getElementById("saveHint");
+
+// インライン文字編集
+const inlineEditEl    = document.getElementById("inlineEdit");
+const inlineEditInput = document.getElementById("inlineEditInput");
+
+// ─── 定数 ─────────────────────────────────────────────────
+const LS_KEY            = "dance-studio-v4";
+const COUNTS_PER_PHRASE = 16;
+
+// ─── 状態 ─────────────────────────────────────────────────
+let work       = loadWork() ?? makeWork();
+let phraseIdx  = 0;
+let countIdx   = 0;
+
+let selectedJoint  = null;
+let selectedItemId = null;
+let editingItemId  = null; // インライン編集中のアイテム
+
+let dragKind   = null; // "joint"|"item-tip"|"item-rotate"|"item-arc-start"|"item-bend-cp"|"item-move"
+let dragJoint  = null;
+let dragItemId = null;
+
+let addFbTimer = 0;
+let saveTimer  = 0;
+
+let stage = null; // Three.js ステージ
+
+// ─── データ構造 ────────────────────────────────────────────
+function uid() { return Math.random().toString(36).slice(2, 10); }
+
+function phraseLabel(idx) {
+  const ch = String.fromCharCode(65 + (idx % 26));
+  const n  = Math.floor(idx / 26);
+  return n === 0 ? ch : `${ch}${n + 1}`;
 }
 
-/** 1 カウントの秒数。ルール: countDuration = video.duration / 16 */
-function getCountDurationSec() {
-  const dur = getVideoDurationSec();
-  return dur > 0 ? dur / UNIFORM_SLOTS : 0;
+function makeCount(n) {
+  return { n, pose: clonePose(STAND_POSE), items: [], bodyYaw: 0, headYaw: 0 };
 }
 
-/** 再生位置 t（秒）が属するスロット 0..15 */
-function uniformSlotFromTime(t) {
-  const cd = getCountDurationSec();
-  if (cd <= 0) return 0;
-  const s = Math.floor(t / cd);
-  return Math.min(UNIFORM_SLOTS - 1, Math.max(0, s));
-}
-
-function uniformTimeForSlot(slot) {
-  const cd = getCountDurationSec();
-  return cd * Math.max(0, Math.min(UNIFORM_SLOTS - 1, slot));
-}
-
-const video = $("player");
-const overlay = $("overlay");
-const octx = overlay.getContext("2d");
-const motionCanvas = $("motionPreview");
-const mctx = motionCanvas?.getContext("2d");
-
-let score = null;
-let phrases = [];
-let frames = null;
-let countIndex = 0;
-let rafId = 0;
-let morphRaf = 0;
-let morphStart = 0;
-
-const MORPH_MS = 700;
-
-let scannedPeople = [];
-let selectedPerson = null;
-let generating = false;
-let timelineView = null;
-let practice = null;
-let uiMode = "practice";
-
-function setUiMode(mode) {
-  uiMode = mode;
-  document.body.classList.toggle("mode-practice", mode === "practice");
-  document.body.classList.toggle("mode-preview", mode === "preview");
-  $("modePreview").classList.toggle("primary", mode === "preview");
-  $("modePreview").classList.toggle("ghost", mode !== "preview");
-  $("modePractice").classList.toggle("primary", mode === "practice");
-  $("modePractice").classList.toggle("ghost", mode !== "practice");
-  if (mode === "practice") {
-    stopMorphLoop();
-    if (video?.src) video.pause();
-    practice?.drawIdle();
-    setStatus("PRACTICE");
-  } else {
-    practice?.stop();
-    setStatus("PREVIEW");
-    drawOverlay();
-  }
-}
-
-function setHeaderMessage(text, type = "") {
-  const el = $("headerMessage");
-  if (!el) return;
-  el.textContent = text || "";
-  el.classList.remove("is-error", "is-ok");
-  if (type) el.classList.add(type);
-}
-
-function showError(msg) {
-  const el = $("err");
-  el.classList.toggle("hidden", !msg);
-  el.textContent = msg || "";
-  setHeaderMessage(msg, msg ? "is-error" : "");
-}
-
-function setStatus(text) {
-  $("rec-status").textContent = text;
-}
-
-export function normalizeVideoPath(path) {
-  if (!path) return "";
-  const p = path.trim();
-  if (p.includes("_overlay")) {
-    const name = p.split("/").pop().replace("_score_overlay.mp4", ".mp4");
-    return `data/videos/${name}`;
-  }
-  return p;
-}
-
-function assetUrl(relativePath) {
-  return "/" + relativePath.replace(/^\//, "");
-}
-
-async function videoExists(path) {
-  try {
-    const res = await fetch(assetUrl(path), { method: "HEAD" });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-function resizeOverlay() {
-  const w = video.clientWidth;
-  const h = video.clientHeight;
-  if (w && h) {
-    overlay.width = w;
-    overlay.height = h;
-  }
-}
-
-function currentPose() {
-  if (!score?.counts?.length) return null;
-  const t =
-    !video.paused && video.src
-      ? video.currentTime
-      : uniformTimeForSlot(countIndex);
-  return poseAtTime(frames, score.counts, t);
-}
-
-function countPair() {
-  if (!score?.counts?.length) return { a: null, b: null, label: "—" };
-  const cd = getCountDurationSec();
-  if (cd <= 0) return { a: null, b: null, label: "—" };
-  const dur = getVideoDurationSec();
-  const t0 = cd * countIndex;
-  const t1 = countIndex < UNIFORM_SLOTS - 1 ? cd * (countIndex + 1) : dur;
-  const label =
-    countIndex < UNIFORM_SLOTS - 1
-      ? `${countDisplayLabel(countIndex + 1)} → ${countDisplayLabel(countIndex + 2)}`
-      : `${countDisplayLabel(countIndex + 1)}（終端）`;
+function makePhrase(idx) {
   return {
-    a: poseAtTime(frames, score.counts, t0),
-    b: poseAtTime(frames, score.counts, t1),
-    label,
+    id:     uid(),
+    label:  phraseLabel(idx),
+    counts: Array.from({ length: COUNTS_PER_PHRASE }, (_, i) => makeCount(i + 1)),
   };
 }
 
-function stopMorphLoop() {
-  cancelAnimationFrame(morphRaf);
-  morphRaf = 0;
+function makeWork(name = "") {
+  return { id: uid(), name, phrases: [makePhrase(0)] };
 }
 
-function morphT(now) {
-  const phase = ((now - morphStart) % (MORPH_MS * 2)) / MORPH_MS;
-  return phase <= 1 ? easeInOutSine(phase) : easeInOutSine(2 - phase);
+function current() {
+  return work.phrases[phraseIdx].counts[countIdx];
 }
 
-function drawMotionPanel(t) {
-  if (!mctx || !motionCanvas) return;
-  const { a, b, label } = countPair();
-  drawMotionPreview(mctx, motionCanvas.width, motionCanvas.height, a, b, t, timelineView);
-  $("motionCaption").textContent = `${label} の動き`;
+function selectedItem() {
+  return current().items.find((i) => i.id === selectedItemId) ?? null;
 }
 
-function drawPausedOverlay(t) {
-  if (!score?.counts?.length) return;
-  resizeOverlay();
-  octx.clearRect(0, 0, overlay.width, overlay.height);
-  const { a, b } = countPair();
-  if (!a) return;
-  const pose = a === b ? a : lerpPose(a, b, t);
-  drawPose(octx, pose, overlay.width, overlay.height, a, a);
+function hasContent(c) {
+  if (!c) return false;
+  if (c.items?.length > 0) return true;
+  if (Math.abs(c.bodyYaw ?? 0) > 1 || Math.abs(c.headYaw ?? 0) > 1) return true;
+  for (const id of Object.keys(STAND_POSE)) {
+    const p = c.pose?.[id];
+    if (!p) continue;
+    const s = STAND_POSE[id];
+    if (Math.abs(p[0] - s[0]) > 0.03 || Math.abs(p[1] - s[1]) > 0.03) return true;
+  }
+  return false;
 }
 
-function startMorphLoop() {
-  stopMorphLoop();
-  if (!score?.counts?.length || !video.paused) return;
+// ─── 保存 / 読み込み ─────────────────────────────────────
+function saveWork() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(work)); } catch { /* ignore */ }
+}
 
-  morphStart = performance.now();
-  const tick = (now) => {
-    if (!video.paused) {
-      stopMorphLoop();
+function loadWork() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const w = JSON.parse(raw);
+    if (!w?.phrases?.length) return null;
+    for (const phrase of w.phrases) {
+      for (const c of phrase.counts) {
+        c.pose    = { ...clonePose(STAND_POSE), ...c.pose };
+        c.items   = c.items   ?? [];
+        c.headYaw = c.headYaw ?? 0;
+        c.bodyYaw = c.bodyYaw ?? 0;
+      }
+    }
+    return w;
+  } catch { return null; }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveWork, 800);
+}
+
+// ─── レンダリング ──────────────────────────────────────────
+function draw() {
+  const c = current();
+  // Three.js アバター
+  stage?.render(c.pose, { bodyYaw: c.bodyYaw, headYaw: c.headYaw ?? 0, selectedJoint });
+  // 2D アノテーション
+  drawAnnotCanvas(annotCanvas, c.items, selectedItemId);
+  updateControls();
+  scheduleSave();
+}
+
+function updateControls() {
+  const item       = selectedItem();
+  const isStraight = item?.type === "arrow";
+  const isSpin     = item?.type === "spin";
+  const isArrow    = isStraight || isSpin;
+  const isText     = item?.type === "text";
+  const c          = current();
+
+  if (btnDeleteItem) btnDeleteItem.disabled = !item;
+
+  // itemControls セクション
+  if (itemControls) {
+    const show = isArrow || isText;
+    itemControls.classList.toggle("item-ctrl--idle", !show);
+    if (itemCtrlTitle) itemCtrlTitle.textContent = isArrow ? "矢印の調整" : "テキスト";
+  }
+
+  // ポーズスライダー
+  if (bodyYawEl) {
+    bodyYawEl.value = String(Math.round(c.bodyYaw) % 360);
+    if (bodyYawLbl) bodyYawLbl.textContent = `${bodyYawEl.value}°`;
+  }
+  if (headYawEl) {
+    headYawEl.value = String(Math.round(c.headYaw ?? 0));
+    if (headYawLbl) headYawLbl.textContent = `${headYawEl.value}°`;
+  }
+
+  // 矢印スライダー
+  if (dirAngle) {
+    dirAngle.disabled = !isArrow;
+    if (isArrow) {
+      dirAngle.value = String(Math.round(item.angle ?? 90) % 360);
+      if (dirAngleLbl) dirAngleLbl.textContent = `${dirAngle.value}°`;
+    }
+  }
+  if (dirPower) {
+    dirPower.disabled = !isArrow;
+    if (isArrow) {
+      dirPower.value = String(Math.round((item.power ?? 0.45) * 100));
+      if (dirPowerLbl) dirPowerLbl.textContent = `${dirPower.value}%`;
+    }
+  }
+
+  // 曲がり: 直線矢印のみ
+  bendRow?.classList.toggle("hidden", !isStraight);
+  if (isStraight) {
+    if (dirBend) {
+      dirBend.value = String(Math.round(item.bend ?? 0));
+      if (dirBendLbl) dirBendLbl.textContent = String(Math.round(item.bend ?? 0));
+    }
+  }
+
+  // 傾き: 両方の矢印
+  tiltRow?.classList.toggle("hidden", !isArrow);
+  if (isArrow) {
+    if (dirTilt) {
+      dirTilt.value = String(Math.round(item.tilt ?? 0) % 360);
+      if (dirTiltLbl) dirTiltLbl.textContent = `${dirTilt.value}°`;
+    }
+  }
+
+  // カウントラベル
+  const phrase = work.phrases[phraseIdx];
+  if (countLabel) countLabel.textContent = `${phrase.label} – ${countIdx + 1}`;
+
+  // 作品名（フォーカス中は上書きしない）
+  if (workNameEl && document.activeElement !== workNameEl) {
+    workNameEl.value = work.name ?? "";
+  }
+}
+
+// ─── アイテム操作 ─────────────────────────────────────────
+function selectItem(id) { selectedItemId = id; selectedJoint = null; draw(); }
+function selectJoint(id) { selectedJoint = id; selectedItemId = null; draw(); }
+
+function deleteSelectedItem() {
+  if (!selectedItemId) return;
+  current().items = current().items.filter((i) => i.id !== selectedItemId);
+  selectedItemId  = null;
+  draw();
+}
+
+// ─── stageWrap のポインターイベント ────────────────────────
+stageWrap?.addEventListener("pointerdown", onPointerDown, { capture: true });
+stageWrap?.addEventListener("pointermove", onPointerMove);
+stageWrap?.addEventListener("pointerup",   endDrag);
+stageWrap?.addEventListener("pointercancel", endDrag);
+
+function stageNorm(ev) {
+  const r = stageWrap.getBoundingClientRect();
+  return {
+    x: (ev.clientX - r.left) / r.width,
+    y: (ev.clientY - r.top)  / r.height,
+  };
+}
+
+function onPointerDown(ev) {
+  // インライン編集中はクリックをそのまま通す
+  if (ev.target === inlineEditInput) return;
+  closeInlineEdit(true);
+
+  const { x, y } = stageNorm(ev);
+  const c = current();
+
+  // 1. 2D アノテーションアイテムへのヒット
+  annotCanvas.width  = annotCanvas.width  || stageWrap.clientWidth;
+  annotCanvas.height = annotCanvas.height || stageWrap.clientHeight;
+  const hit = hitTestItems(c.items, x, y, annotCanvas);
+  if (hit) {
+    const p = hit.part;
+    if      (p === "tip" || p === "arc-end") dragKind = "item-tip";
+    else if (p === "rotate")    dragKind = "item-rotate";
+    else if (p === "arc-start") dragKind = "item-arc-start";
+    else if (p === "bend-cp")   dragKind = "item-bend-cp";
+    else                        dragKind = "item-move";
+    dragItemId = hit.item.id;
+    selectItem(hit.item.id);
+    ev.preventDefault();
+    stageWrap.setPointerCapture(ev.pointerId);
+    return;
+  }
+
+  // 2. Three.js 関節へのヒット
+  if (stage) {
+    const joint = stage.hitTestJoint(x, y);
+    if (joint) {
+      dragKind  = "joint";
+      dragJoint = joint;
+      selectJoint(joint);
+      ev.preventDefault();
+      stageWrap.setPointerCapture(ev.pointerId);
       return;
     }
-    const t = morphT(now);
-    drawPausedOverlay(t);
-    drawMotionPanel(t);
-    morphRaf = requestAnimationFrame(tick);
-  };
-  morphRaf = requestAnimationFrame(tick);
-}
-
-function drawOverlay() {
-  if (!score?.counts?.length) return;
-  if (video.paused) {
-    startMorphLoop();
-    return;
-  }
-  stopMorphLoop();
-  resizeOverlay();
-  octx.clearRect(0, 0, overlay.width, overlay.height);
-  const pose = currentPose();
-  const cd = getCountDurationSec();
-  const prev =
-    countIndex > 0 && cd > 0
-      ? poseAtTime(frames, score.counts, cd * (countIndex - 1))
-      : null;
-  drawPose(octx, pose, overlay.width, overlay.height, prev, prev);
-}
-
-function paintLoop() {
-  if (video.paused || video.ended) return;
-  drawOverlay();
-  highlightCells();
-  rafId = requestAnimationFrame(paintLoop);
-}
-
-function updateBeatInfoUniform() {
-  if (!score?.counts?.length) {
-    $("beatInfo").innerHTML = "—<br>譜面を読み込んでください";
-    $("tlMode").textContent = "16 COUNT (video ÷ 16)";
-    return;
-  }
-  const cd = getCountDurationSec();
-  const t = uniformTimeForSlot(countIndex);
-  const pose = poseAtTime(frames, score.counts, t);
-  const hasPose = !!pose && Object.keys(pose).length > 0;
-  const label = countDisplayLabel(countIndex + 1);
-  $("beatInfo").innerHTML =
-    `Beat: <span style="color:#00ff88">${label}</span><br>` +
-    `Slot: ${countIndex + 1} / 16<br>` +
-    `Jump: ${t.toFixed(3)}s (= ${cd.toFixed(4)}s × ${countIndex})<br>` +
-    `Data: ${hasPose ? '<span style="color:#00ff88">✓ pose</span>' : '<span style="color:#333">empty</span>'}`;
-  $("tlMode").textContent = `16等分 ▸ ${label}`;
-}
-
-function updateNowPlaying() {
-  if (!score?.counts?.length) return;
-  const cd = getCountDurationSec();
-  const t = uniformTimeForSlot(countIndex);
-  const label = countDisplayLabel(countIndex + 1);
-  $("sheetPanel").classList.remove("hidden");
-  $("nowLabel").textContent = label;
-  $("phraseVal").textContent = "動画尺 ÷ 16";
-  $("countVal").textContent = label;
-  $("timeVal").textContent = `${t.toFixed(3)}s`;
-  $("tempoDisp").textContent =
-    cd > 0 ? `1/16 = ${cd.toFixed(4)}s · 動画 ${getVideoDurationSec().toFixed(2)}s` : "—";
-  updateBeatInfoUniform();
-  highlightCells();
-  drawOverlay();
-}
-
-function highlightCells() {
-  const playing = !video.paused && !video.ended;
-  document.querySelectorAll(".count-block").forEach((el) => {
-    const slot = +el.dataset.slot;
-    el.classList.toggle("selected", slot === countIndex);
-    el.classList.toggle("playing", playing && slot === countIndex);
-  });
-  document.querySelectorAll(".person-card").forEach((el) => {
-    el.classList.toggle("selected", el.dataset.pid === String(selectedPerson?.person_id));
-  });
-}
-
-/** スロット i → 動画は countDuration * i 秒へジャンプし一時停止。骨格はその瞬間の score データ */
-function selectUniformSlot(slot, seek) {
-  if (!score?.counts?.length) return;
-  countIndex = Math.max(0, Math.min(UNIFORM_SLOTS - 1, slot));
-  const cd = getCountDurationSec();
-  if (seek && video.src && cd > 0) {
-    video.currentTime = cd * countIndex;
-    video.pause();
-  }
-  if (score?.counts?.length) {
-    const tJump = uniformTimeForSlot(countIndex);
-    const step = nearestCountIndex(score.counts, tJump);
-    practice?.setIndex(step);
-  }
-  updateNowPlaying();
-}
-
-function uniformSamplePoses() {
-  const cd = getCountDurationSec();
-  const out = [];
-  let last = null;
-  for (let i = 0; i < UNIFORM_SLOTS; i += 1) {
-    const t = cd * i;
-    const p = poseAtTime(frames, score.counts, t);
-    last = p && Object.keys(p).length ? p : last;
-    out.push(last || p || {});
-  }
-  return out;
-}
-
-function addUniformCountBlock(grid, slot) {
-  const cd = getCountDurationSec();
-  const t = cd * slot;
-  const pose = poseAtTime(frames, score.counts, t);
-  const prevPose = slot > 0 ? poseAtTime(frames, score.counts, cd * (slot - 1)) : null;
-
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "count-block";
-  btn.dataset.slot = String(slot);
-  btn.dataset.time = String(t);
-
-  if (pose && Object.keys(pose).length) btn.classList.add("has-data");
-
-  const canvas = document.createElement("canvas");
-  canvas.width = 144;
-  canvas.height = 180;
-  if (pose && timelineView) {
-    drawCountPoseOnCanvas(canvas, prevPose, pose, timelineView);
-  } else if (pose) {
-    drawPoseOnCanvas(canvas, pose);
-  }
-  btn.appendChild(canvas);
-
-  const num = document.createElement("span");
-  num.className = "cb-num";
-  num.textContent = countDisplayLabel(slot + 1);
-  btn.appendChild(num);
-
-  const lbl = document.createElement("span");
-  lbl.className = "cb-label";
-  lbl.textContent = `${t.toFixed(2)}s`;
-  btn.appendChild(lbl);
-
-  const dot = document.createElement("div");
-  dot.className = "cb-dot";
-  btn.appendChild(dot);
-
-  btn.addEventListener("click", () => selectUniformSlot(slot, true));
-  grid.appendChild(btn);
-}
-
-function renderSheet() {
-  const root = $("sheetTimeline");
-  root.innerHTML = "";
-  if (!score?.counts?.length) return;
-
-  const cd = getCountDurationSec();
-  const dur = getVideoDurationSec();
-  const poses = uniformSamplePoses();
-  timelineView = buildTimelineView(poses.filter((p) => p && Object.keys(p).length));
-  if (!timelineView) {
-    timelineView = buildTimelineView(poses);
   }
 
-  const section = document.createElement("div");
-  section.className = "phrase-timeline";
-
-  const header = document.createElement("div");
-  header.className = "timeline-header";
-  header.innerHTML =
-    `<span class="tl-title">16 カウント（動画 ${dur.toFixed(2)}s ÷ 16）</span>` +
-    `<span class="tl-mode" id="uniformMeta">1 拍 = ${cd > 0 ? cd.toFixed(4) : "—"}s</span>`;
-  section.appendChild(header);
-
-  const grid = document.createElement("div");
-  grid.className = "count-grid";
-  grid.id = "uniform16Grid";
-  for (let slot = 0; slot < UNIFORM_SLOTS; slot += 1) {
-    addUniformCountBlock(grid, slot);
-  }
-  section.appendChild(grid);
-  root.appendChild(section);
+  // 3. 背景 → オービット
+  selectedItemId = null;
+  selectedJoint  = null;
+  dragKind       = "orbit";
+  stage?.orbitStart(x, y);
+  stageWrap.setPointerCapture(ev.pointerId);
+  draw();
 }
 
-function renderPersonGallery() {
-  const root = $("personGallery");
-  root.innerHTML = "";
-  $("generateBtn").classList.toggle("hidden", scannedPeople.length === 0);
-  $("rescanBtn").classList.toggle("hidden", !video.src);
+function onPointerMove(ev) {
+  if (!dragKind) return;
+  const { x, y } = stageNorm(ev);
+  const c = current();
 
-  if (!scannedPeople.length) {
+  if (dragKind === "orbit") {
+    stage?.orbitMove(x, y);
     return;
   }
 
-  scannedPeople.forEach((person) => {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "person-card";
-    card.dataset.pid = String(person.person_id);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 48;
-    canvas.height = 60;
-    drawPoseOnCanvas(canvas, person.pose);
-    card.appendChild(canvas);
-
-    const cap = document.createElement("span");
-    cap.className = "person-cap";
-    cap.innerHTML = `<strong>${person.label}</strong><small>${person.hint}</small>`;
-    card.appendChild(cap);
-
-    card.addEventListener("click", () => selectPerson(person));
-    root.appendChild(card);
-  });
-}
-
-function selectPerson(person) {
-  selectedPerson = person;
-  $("generateBtn").disabled = false;
-  $("generateBtn").classList.remove("hidden");
-  $("pickStatus").textContent = `${person.label} → Generate`;
-  $("pickStatus").classList.remove("hidden");
-  highlightCells();
-}
-
-async function scanPeople() {
-  const videoPath = normalizeVideoPath($("videoPath").value);
-  if (!videoPath || !video.src) return;
-
-  $("scanMeta").textContent = "Scanning…";
-  try {
-    const data = await fetchJson(
-      `/api/scan-people?video=${encodeURIComponent(videoPath)}`,
-      "人物認識",
-    );
-    scannedPeople = data.people || [];
-    $("scanMeta").textContent =
-      scannedPeople.length > 0
-        ? `${scannedPeople.length} detected — pick & Generate`
-        : "No people found.";
-    renderPersonGallery();
-  } catch (e) {
-    $("scanMeta").textContent = `Scan skipped: ${e.message}`;
-  }
-}
-
-async function generateScore() {
-  if (!selectedPerson || generating) return;
-  const videoPath = normalizeVideoPath($("videoPath").value);
-  const scorePath =
-    $("scorePath").value.trim() ||
-    `data/output/${videoPath.split("/").pop().replace(".mp4", "_score.json")}`;
-  const [x, y] = selectedPerson.center;
-
-  generating = true;
-  $("generateBtn").disabled = true;
-  $("pickStatus").textContent = "Generating…";
-  setStatus("GENERATING");
-
-  try {
-    const payload = await fetchJsonPost(
-      "/api/generate-score",
-      { video: videoPath, target: `${x},${y}`, output: scorePath },
-      "譜面生成",
-    );
-
-    $("scorePath").value = payload.score_path;
-    $("pickStatus").textContent = `Done · ${payload.frames}f · ${payload.beats} beats`;
-    await loadScore(payload.score_path);
-    setStatus("SCORE READY");
-  } catch (e) {
-    showError(String(e.message || e));
-    $("pickStatus").textContent = "Generate failed";
-    setStatus("ERROR");
-  } finally {
-    generating = false;
-    $("generateBtn").disabled = !selectedPerson;
-  }
-}
-
-async function loadScore(scorePath) {
-  const data = await loadScoreJson(scorePath);
-  score = data.score;
-  phrases = data.phrases;
-  frames = data.frames;
-  countIndex = 0;
-  renderSheet();
-  updateNowPlaying();
-  showError("");
-  setHeaderMessage(`Score loaded · ${score.counts.length} counts`, "is-ok");
-  setStatus("SCORE READY");
-  $("modeTabs").classList.remove("hidden");
-  $("practicePanel").classList.remove("hidden");
-  practice?.drawIdle();
-  setUiMode("practice");
-}
-
-/** Practice: 譜面の任意ステップ step（0..counts-1）の区間 [t0, t1] */
-function getPracticeTimesForStep(step) {
-  const counts = score?.counts;
-  if (!counts?.length) return { t0: 0, t1: 0 };
-  const s = Math.max(0, Math.min(counts.length - 1, step));
-  const t0 = Number(counts[s].time_sec);
-  let t1;
-  if (s < counts.length - 1) t1 = Number(counts[s + 1].time_sec);
-  else t1 = getVideoDurationSec();
-  return { t0, t1: Math.max(t1, t0 + 0.02) };
-}
-
-function initPractice() {
-  practice = createPracticeController({
-    canvas: $("practiceGuide"),
-    countEl: $("practiceCount"),
-    hintEl: $("practiceHint"),
-    playBtn: $("practicePlay"),
-    loopCheck: $("loopPhrase"),
-    videoCheck: $("useVideoAudio"),
-    video,
-    getPracticeTimes: (step) => getPracticeTimesForStep(step),
-    getScoreCounts: () => score?.counts ?? [],
-    getPoseAtTime: (t) => poseAtTime(frames, score?.counts ?? [], t),
-    getTimelineView: () => timelineView,
-    onCountChange: () => {
-      highlightCells();
-    },
-  });
-}
-
-async function tryLoadExistingScore() {
-  const scorePath = $("scorePath").value.trim();
-  if (!scorePath) return;
-
-  try {
-    await loadScore(scorePath);
-    const tc = score.tracking?.target_center;
-    if (tc?.length === 2 && scannedPeople.length) {
-      const match = scannedPeople.find(
-        (p) => Math.hypot(p.center[0] - tc[0], p.center[1] - tc[1]) < 0.12,
-      );
-      if (match) selectPerson(match);
+  if (dragKind === "joint" && dragJoint && stage) {
+    const newPos = stage.getDraggedPos(dragJoint, x, y);
+    if (newPos) {
+      c.pose[dragJoint] = newPos;
+      draw();
     }
+    return;
+  }
+
+  const item = c.items.find((i) => i.id === dragItemId);
+  if (!item) return;
+
+  if      (dragKind === "item-tip")       dragItemTip(item, x, y, annotCanvas);
+  else if (dragKind === "item-rotate")    dragItemRotate(item, x, y, annotCanvas);
+  else if (dragKind === "item-arc-start") dragItemArcStart(item, x, y, annotCanvas);
+  else if (dragKind === "item-bend-cp")   dragItemBendCP(item, x, y, annotCanvas);
+  else if (dragKind === "item-move") {
+    item.x = Math.max(0.05, Math.min(0.95, x));
+    item.y = Math.max(0.05, Math.min(0.92, y));
+  }
+  draw();
+}
+
+function endDrag(ev) {
+  if (dragKind === "orbit") stage?.orbitEnd();
+  dragKind   = null;
+  dragJoint  = null;
+  dragItemId = null;
+  try { stageWrap.releasePointerCapture(ev.pointerId); } catch { /* ignore */ }
+}
+
+// ─── ダブルクリック: インライン文字編集 ────────────────────
+stageWrap?.addEventListener("dblclick", (ev) => {
+  const { x, y } = stageNorm(ev);
+  annotCanvas.width  = annotCanvas.width  || stageWrap.clientWidth;
+  annotCanvas.height = annotCanvas.height || stageWrap.clientHeight;
+  const hit = hitTestItems(current().items, x, y, annotCanvas);
+  if (hit?.item.type === "text") {
+    ev.preventDefault();
+    openInlineEdit(hit.item, ev.clientX, ev.clientY);
+  }
+});
+
+function openInlineEdit(item, clientX, clientY) {
+  editingItemId = item.id;
+  selectedItemId = item.id;
+
+  inlineEditEl.style.left = `${clientX}px`;
+  inlineEditEl.style.top  = `${clientY}px`;
+  inlineEditEl.classList.remove("hidden");
+
+  inlineEditInput.value = item.text || "";
+  inlineEditInput.style.fontSize = `${Math.max(12, (item.fontSize ?? 18) * 0.85)}px`;
+  inlineEditInput.focus();
+  inlineEditInput.select();
+}
+
+function closeInlineEdit(commit = true) {
+  if (!editingItemId) return;
+  if (commit) {
+    const item = current().items.find((i) => i.id === editingItemId);
+    if (item && inlineEditInput) item.text = inlineEditInput.value || item.text;
+  }
+  editingItemId = null;
+  inlineEditEl.classList.add("hidden");
+  draw();
+}
+
+inlineEditInput?.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" || ev.key === "Escape") {
+    ev.preventDefault();
+    closeInlineEdit(ev.key === "Enter");
+  }
+});
+inlineEditInput?.addEventListener("blur", () => closeInlineEdit(true));
+
+// ─── ポーズ操作 ────────────────────────────────────────────
+document.querySelector("[data-preset]")?.addEventListener("click", () => {
+  const c = current();
+  c.pose    = clonePose(STAND_POSE);
+  c.bodyYaw = 0;
+  c.headYaw = 0;
+  draw();
+});
+
+bodyYawEl?.addEventListener("input", () => {
+  current().bodyYaw = Number(bodyYawEl.value);
+  draw();
+});
+headYawEl?.addEventListener("input", () => {
+  current().headYaw = Number(headYawEl.value);
+  draw();
+});
+
+document.querySelectorAll("[data-view]").forEach((btn) => {
+  const ANGLE = { front: 0, diag: 45, side: 85 };
+  btn.addEventListener("click", () => {
+    current().bodyYaw = ANGLE[btn.dataset.view] ?? 0;
+    if (bodyYawEl) {
+      bodyYawEl.value = String(current().bodyYaw);
+      if (bodyYawLbl) bodyYawLbl.textContent = `${bodyYawEl.value}°`;
+    }
+    draw();
+  });
+});
+
+document.getElementById("btnCopyCount")?.addEventListener("click", () => {
+  const phrase  = work.phrases[phraseIdx];
+  const nextIdx = countIdx + 1;
+  if (nextIdx < COUNTS_PER_PHRASE) {
+    const src = current();
+    const dst = phrase.counts[nextIdx];
+    dst.pose    = clonePose(src.pose);
+    dst.bodyYaw = src.bodyYaw;
+    dst.headYaw = src.headYaw ?? 0;
+    countIdx    = nextIdx;
+    selectedItemId = null;
+    selectedJoint  = null;
+    rebuildTimeline();
+    draw();
+  }
+});
+
+// ─── フレーズ追加 ──────────────────────────────────────────
+document.getElementById("btnAddPhrase")?.addEventListener("click", () => {
+  work.phrases.push(makePhrase(work.phrases.length));
+  phraseIdx = work.phrases.length - 1;
+  countIdx  = 0;
+  rebuildTimeline();
+  draw();
+});
+
+// ─── 作品名 ───────────────────────────────────────────────
+workNameEl?.addEventListener("input", () => { work.name = workNameEl.value; scheduleSave(); });
+
+document.getElementById("btnSaveWork")?.addEventListener("click", () => {
+  saveWork();
+  if (saveHint) {
+    saveHint.textContent = "✓ 保存しました";
+    setTimeout(() => { saveHint.textContent = ""; }, 2500);
+  }
+});
+
+document.getElementById("btnNewWork")?.addEventListener("click", () => {
+  if (!confirm("現在の内容を破棄して新しい作品を始めますか？")) return;
+  work      = makeWork();
+  phraseIdx = 0;
+  countIdx  = 0;
+  selectedItemId = null;
+  selectedJoint  = null;
+  rebuildTimeline();
+  draw();
+});
+
+// ─── キャンバスアイテム追加 ────────────────────────────────
+function showFb(msg) {
+  if (!addFeedback) return;
+  addFeedback.textContent = msg;
+  clearTimeout(addFbTimer);
+  addFbTimer = setTimeout(() => { addFeedback.textContent = ""; }, 3000);
+}
+
+function flashStage() {
+  stageWrap?.classList.remove("canvas-stack--added");
+  void stageWrap?.offsetWidth;
+  stageWrap?.classList.add("canvas-stack--added");
+  setTimeout(() => stageWrap?.classList.remove("canvas-stack--added"), 600);
+}
+
+function addAnnotItem(type, x, y, extra = {}, msg) {
+  const item = createItem(type, x, y, extra);
+  current().items.push(item);
+  selectItem(item.id);
+  showFb(msg);
+  flashStage();
+}
+
+document.getElementById("btnAddStraightArrow")?.addEventListener("click", () => {
+  addAnnotItem("arrow", 0.5, 0.62, { bend: 0 }, "進む矢印を追加");
+});
+document.getElementById("btnAddSpinArrow")?.addEventListener("click", () => {
+  addAnnotItem("spin", 0.5, 0.50, { angle: 30 }, "回転の矢印を追加");
+});
+document.getElementById("btnAddText")?.addEventListener("click", () => {
+  const text = document.getElementById("fieldMotion")?.value.trim() || "メモ";
+  addAnnotItem("text", 0.5, 0.35, { text }, `「${text}」を追加`);
+});
+
+// ─── 矢印スライダー ────────────────────────────────────────
+function bindSlider(el, fn) {
+  el?.addEventListener("input", () => {
+    const item = selectedItem();
+    if (!item) return;
+    fn(item);
+    updateControls();
+    drawAnnotCanvas(annotCanvas, current().items, selectedItemId);
+  });
+}
+bindSlider(dirAngle, (item) => { item.angle = Number(dirAngle.value); });
+bindSlider(dirPower, (item) => { item.power = Number(dirPower.value) / 100; });
+bindSlider(dirBend,  (item) => { item.bend  = Number(dirBend.value); });
+bindSlider(dirTilt,  (item) => { item.tilt  = Number(dirTilt.value); });
+
+// ─── アイテム削除 ─────────────────────────────────────────
+btnDeleteItem?.addEventListener("click", deleteSelectedItem);
+
+// ─── キーボードショートカット ─────────────────────────────
+document.addEventListener("keydown", (ev) => {
+  // インライン編集中は委任
+  if (ev.target === inlineEditInput) return;
+  if (ev.target.matches("input, textarea")) return;
+
+  if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
+    ev.preventDefault();
+    const delta = ev.key === "ArrowRight" ? 1 : -1;
+    countIdx = Math.max(0, Math.min(COUNTS_PER_PHRASE - 1, countIdx + delta));
+    selectedItemId = null;
+    selectedJoint  = null;
+    rebuildTimeline();
+    draw();
+    return;
+  }
+
+  if (ev.key === "Delete" || ev.key === "Backspace") {
+    if (selectedItemId) {
+      ev.preventDefault();
+      deleteSelectedItem();
+    }
+  }
+});
+
+// ─── タイムライン ─────────────────────────────────────────
+function rebuildTimeline() {
+  const container = document.getElementById("phraseTimeline");
+  if (!container) return;
+  container.innerHTML = "";
+
+  work.phrases.forEach((phrase, pi) => {
+    const row = document.createElement("div");
+    row.className = "phrase-row";
+
+    const lbl = document.createElement("span");
+    lbl.className   = "phrase-label";
+    lbl.textContent = phrase.label;
+    row.appendChild(lbl);
+
+    const chips = document.createElement("div");
+    chips.className = "phrase-counts";
+
+    phrase.counts.forEach((count, ci) => {
+      if (ci === 8) {
+        const d     = document.createElement("span");
+        d.className = "count-divider";
+        chips.appendChild(d);
+      }
+      const btn       = document.createElement("button");
+      btn.type        = "button";
+      btn.className   = "count-chip";
+      btn.textContent = ci + 1;
+      if (pi === phraseIdx && ci === countIdx) btn.classList.add("is-active");
+      if (hasContent(count)) btn.classList.add("has-pose");
+      btn.addEventListener("click", () => {
+        phraseIdx = pi; countIdx = ci;
+        selectedItemId = null; selectedJoint = null;
+        rebuildTimeline(); draw();
+      });
+      chips.appendChild(btn);
+    });
+
+    row.appendChild(chips);
+
+    if (work.phrases.length > 1) {
+      const del       = document.createElement("button");
+      del.type        = "button";
+      del.className   = "btn-phrase-del";
+      del.textContent = "×";
+      del.addEventListener("click", () => {
+        if (!confirm(`フレーズ ${phrase.label} を削除しますか？`)) return;
+        work.phrases.splice(pi, 1);
+        if (phraseIdx >= work.phrases.length) phraseIdx = work.phrases.length - 1;
+        rebuildTimeline(); draw();
+      });
+      row.appendChild(del);
+    }
+    container.appendChild(row);
+  });
+}
+
+// ─── リサイズ ──────────────────────────────────────────────
+function onResize() {
+  const w = viewport3d.clientWidth;
+  const h = viewport3d.clientHeight;
+  if (w < 1 || h < 1) return;
+  stage?.resize(w, h);
+  annotCanvas.width  = w;
+  annotCanvas.height = h;
+  draw();
+}
+
+// ─── 起動 ──────────────────────────────────────────────────
+(async function boot() {
+  // Three.js ステージ初期化
+  try {
+    stage = createStage(viewport3d);
   } catch (e) {
-    showError(String(e.message || e));
-  }
-}
-
-async function loadVideo(path) {
-  const normalized = normalizeVideoPath(path);
-  if (!(await videoExists(normalized))) {
-    showError(`Video not found: ${normalized}`);
-    setStatus("NO VIDEO");
-    return false;
+    console.error("Three.js の初期化に失敗しました:", e);
   }
 
-  video.src = assetUrl(normalized);
-  video.load();
-  setStatus("VIDEO READY");
+  // annotCanvas を viewport3d と同じサイズに
+  const initW = viewport3d.clientWidth  || 440;
+  const initH = viewport3d.clientHeight || 560;
+  annotCanvas.width  = initW;
+  annotCanvas.height = initH;
 
-  return new Promise((resolve) => {
-    const onOk = () => {
-      video.removeEventListener("loadeddata", onOk);
-      video.removeEventListener("error", onErr);
-      resizeOverlay();
-      resolve(true);
-    };
-    const onErr = () => {
-      video.removeEventListener("loadeddata", onOk);
-      video.removeEventListener("error", onErr);
-      showError(`Cannot play: ${normalized}`);
-      setStatus("VIDEO ERROR");
-      resolve(false);
-    };
-    video.addEventListener("loadeddata", onOk);
-    video.addEventListener("error", onErr);
-  });
-}
+  // リサイズ監視
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(onResize).observe(viewport3d);
+  }
+  window.addEventListener("resize", onResize);
 
-async function loadAll() {
-  showError("");
-  cancelAnimationFrame(rafId);
-
-  const videoPath = normalizeVideoPath($("videoPath").value);
-  $("videoPath").value = videoPath;
-
-  if (videoPath) await loadVideo(videoPath);
-  await tryLoadExistingScore();
-  scanPeople();
-}
-
-function init() {
-  document.body.classList.add("mode-practice");
-  initPractice();
-  $("modePreview").addEventListener("click", () => setUiMode("preview"));
-  $("modePractice").addEventListener("click", () => setUiMode("practice"));
-
-  $("loadBtn").addEventListener("click", loadAll);
-  $("sampleBtn").addEventListener("click", () => {
-    $("videoPath").value = "data/videos/PXL_20260228_101825443.mp4";
-    $("scorePath").value = "data/output/PXL_20260228_101825443_score.json";
-    loadAll();
-  });
-  $("rescanBtn").addEventListener("click", scanPeople);
-  $("generateBtn").addEventListener("click", generateScore);
-
-  video.addEventListener("loadedmetadata", () => {
-    if (score?.counts?.length) {
-      renderSheet();
-      updateNowPlaying();
-    }
-  });
-
-  video.addEventListener("play", () => {
-    if (uiMode === "practice" && practice?.isPlaying()) return;
-    setStatus("PLAYING");
-    stopMorphLoop();
-    practice?.stop();
-    cancelAnimationFrame(rafId);
-    paintLoop();
-  });
-  video.addEventListener("pause", () => {
-    if (uiMode === "practice" && practice?.isPlaying()) return;
-    setStatus("PAUSED");
-    highlightCells();
-    startMorphLoop();
-  });
-  video.addEventListener("seeked", () => {
-    if (uiMode === "practice") return;
-    if (video.paused) startMorphLoop();
-    else drawOverlay();
-  });
-  video.addEventListener("timeupdate", () => {
-    if (uiMode === "practice" && practice?.isPlaying()) return;
-    if (!score?.counts?.length) return;
-    const slot = uniformSlotFromTime(video.currentTime);
-    if (slot !== countIndex) {
-      selectUniformSlot(slot, false);
-    }
-  });
-  window.addEventListener("resize", () => {
-    resizeOverlay();
-    if (video.paused) startMorphLoop();
-    else drawOverlay();
-  });
-
-  const p = new URLSearchParams(location.search);
-  if (p.get("video")) $("videoPath").value = normalizeVideoPath(p.get("video"));
-  if (p.get("score")) $("scorePath").value = p.get("score");
-
-  loadAll();
-}
-
-init();
+  // 初回描画
+  rebuildTimeline();
+  draw();
+})();

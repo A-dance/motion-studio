@@ -21,6 +21,8 @@ JOINT_NAMES: tuple[str, ...] = (
     "right_elbow",
     "left_wrist",
     "right_wrist",
+    "left_hand",
+    "right_hand",
     "left_hip",
     "right_hip",
     "left_knee",
@@ -28,6 +30,14 @@ JOINT_NAMES: tuple[str, ...] = (
     "left_ankle",
     "right_ankle",
 )
+
+# MediaPipe Pose の人差し指先（手首より先の「手」の動き用）
+HAND_LANDMARKS: dict[str, PoseLandmark] = {
+    "left_hand": PoseLandmark.LEFT_INDEX,
+    "right_hand": PoseLandmark.RIGHT_INDEX,
+}
+# 指先が取れないとき、手首を前腕方向に延長する比率（前腕長に対する）
+HAND_EXTEND_RATIO = 0.38
 
 KEY_JOINTS: tuple[str, ...] = (
     "nose",
@@ -44,8 +54,10 @@ BONES: tuple[tuple[str, str], ...] = (
     ("right_shoulder", "right_hip"),
     ("left_shoulder", "left_elbow"),
     ("left_elbow", "left_wrist"),
+    ("left_wrist", "left_hand"),
     ("right_shoulder", "right_elbow"),
     ("right_elbow", "right_wrist"),
+    ("right_wrist", "right_hand"),
     ("left_hip", "left_knee"),
     ("left_knee", "left_ankle"),
     ("right_hip", "right_knee"),
@@ -54,7 +66,12 @@ BONES: tuple[tuple[str, str], ...] = (
     ("nose", "right_shoulder"),
 )
 
-POSE_LANDMARKS = {name: PoseLandmark[name.upper()] for name in JOINT_NAMES}
+POSE_LANDMARKS = {
+    name: PoseLandmark[name.upper()]
+    for name in JOINT_NAMES
+    if name not in HAND_LANDMARKS
+}
+POSE_LANDMARKS.update(HAND_LANDMARKS)
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "data" / "models"
 POSE_MODEL_PATH = MODEL_DIR / "pose_landmarker_lite.task"
@@ -143,6 +160,50 @@ def mean_pose_visibility(pose: dict | None) -> float | None:
     return float(np.mean(values)) if values else None
 
 
+def _extend_hand_from_forearm(
+    pose: dict[str, list[float] | None],
+    side: str,
+) -> list[float] | None:
+    """指先未検出時: 肘→手首の方向に手先を合成。"""
+    wrist = pose.get(f"{side}_wrist")
+    elbow = pose.get(f"{side}_elbow")
+    if not wrist or not elbow or len(wrist) < 2 or len(elbow) < 2:
+        return None
+    if len(wrist) >= 3 and float(wrist[2]) < MIN_VISIBILITY:
+        return None
+    if len(elbow) >= 3 and float(elbow[2]) < MIN_VISIBILITY:
+        return None
+    fx = float(wrist[0]) - float(elbow[0])
+    fy = float(wrist[1]) - float(elbow[1])
+    forearm = float(np.hypot(fx, fy))
+    if forearm < 1e-5:
+        return None
+    ext = HAND_EXTEND_RATIO * forearm
+    vis = min(float(wrist[2]) if len(wrist) >= 3 else 1.0, float(elbow[2]) if len(elbow) >= 3 else 1.0)
+    wz = float(wrist[3]) if len(wrist) > 3 else 0.0
+    ez = float(elbow[3]) if len(elbow) > 3 else wz
+    return [
+        round(float(wrist[0]) + fx / forearm * ext, 4),
+        round(float(wrist[1]) + fy / forearm * ext, 4),
+        round(vis * 0.85, 4),
+        round(wz + (wz - ez) * (ext / forearm), 4),
+    ]
+
+
+def enrich_pose_hands(pose: dict[str, list[float] | None]) -> dict[str, list[float] | None]:
+    """手先を INDEX で補完。旧譜面・欠損時は前腕延長。"""
+    out = dict(pose)
+    for side in ("left", "right"):
+        key = f"{side}_hand"
+        raw = out.get(key)
+        if raw and len(raw) >= 2 and (len(raw) < 3 or float(raw[2]) >= MIN_VISIBILITY):
+            continue
+        extended = _extend_hand_from_forearm(out, side)
+        if extended is not None:
+            out[key] = extended
+    return out
+
+
 def person_to_pose(person: Any) -> dict[str, list[float] | None]:
     landmarks: dict[str, list[float] | None] = {}
     for name, idx in POSE_LANDMARKS.items():
@@ -150,8 +211,14 @@ def person_to_pose(person: Any) -> dict[str, list[float] | None]:
         vis = getattr(lm, "visibility", None)
         if vis is None:
             vis = getattr(lm, "presence", 1.0)
-        landmarks[name] = [round(lm.x, 4), round(lm.y, 4), round(float(vis), 4)]
-    return landmarks
+        z = float(getattr(lm, "z", 0.0) or 0.0)
+        landmarks[name] = [
+            round(lm.x, 4),
+            round(lm.y, 4),
+            round(float(vis), 4),
+            round(z, 4),
+        ]
+    return enrich_pose_hands(landmarks)
 
 
 def pose_bbox_stats(pose: dict[str, list[float] | None]) -> tuple[float, float, float]:

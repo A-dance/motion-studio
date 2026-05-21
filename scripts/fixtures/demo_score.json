@@ -1,12 +1,17 @@
 {
-  "version": 1,
+  "version": 4,
+  "title": "K-Pop Fundamentals (Verse 1)",
   "source": { "path": "demo", "fps": 30.0 },
-  "audio": { "bpm": 120.0, "beat_count": 2 },
+  "audio": { "bpm": 120.0, "beat_count": 5 },
   "counts": [
     {
       "index": 1,
       "time_sec": 0.0,
+      "count_display": "1",
       "label": "1",
+      "description": "Opening stance — weight center",
+      "memo": "",
+      "transition": "Roll into shoulder prep on 2",
       "pose": {
         "nose": [0.5, 0.2, 0.99],
         "left_shoulder": [0.42, 0.32, 0.99],
@@ -15,6 +20,8 @@
         "right_elbow": [0.65, 0.45, 0.99],
         "left_wrist": [0.3, 0.58, 0.99],
         "right_wrist": [0.7, 0.58, 0.99],
+        "left_hand": [0.281, 0.62, 0.99],
+        "right_hand": [0.719, 0.62, 0.99],
         "left_hip": [0.44, 0.55, 0.99],
         "right_hip": [0.56, 0.55, 0.99],
         "left_knee": [0.43, 0.72, 0.99],
@@ -26,7 +33,11 @@
     {
       "index": 2,
       "time_sec": 0.5,
-      "label": "2",
+      "count_display": "2&",
+      "label": "2&",
+      "description": "Shoulder pop and low stance transition (2 &)",
+      "memo": "Shift weight quickly on '&' count. Keep arms symmetrical.",
+      "transition": "Smooth transition into Count 3 right foot step.",
       "pose": {
         "nose": [0.5, 0.22, 0.99],
         "left_shoulder": [0.4, 0.34, 0.99],
@@ -35,6 +46,8 @@
         "right_elbow": [0.68, 0.42, 0.99],
         "left_wrist": [0.28, 0.62, 0.99],
         "right_wrist": [0.72, 0.55, 0.99],
+        "left_hand": [0.259, 0.665, 0.99],
+        "right_hand": [0.741, 0.585, 0.99],
         "left_hip": [0.44, 0.56, 0.99],
         "right_hip": [0.56, 0.54, 0.99],
         "left_knee": [0.4, 0.74, 0.99],
@@ -42,6 +55,68 @@
         "left_ankle": [0.38, 0.92, 0.99],
         "right_ankle": [0.62, 0.88, 0.99]
       }
+    },
+    {
+      "index": 3,
+      "time_sec": 1.0,
+      "count_display": "3",
+      "label": "3",
+      "description": "Right foot step — open chest",
+      "memo": "Reach through fingertips. Don't collapse ribcage.",
+      "transition": "Close on 4, prep arms down.",
+      "pose": {
+        "nose": [0.52, 0.21, 0.99],
+        "left_shoulder": [0.41, 0.31, 0.99],
+        "right_shoulder": [0.59, 0.29, 0.99],
+        "left_elbow": [0.34, 0.44, 0.99],
+        "right_elbow": [0.7, 0.4, 0.99],
+        "left_wrist": [0.32, 0.56, 0.99],
+        "right_wrist": [0.74, 0.48, 0.99],
+        "left_hand": [0.31, 0.6, 0.99],
+        "right_hand": [0.76, 0.52, 0.99],
+        "left_hip": [0.43, 0.54, 0.99],
+        "right_hip": [0.57, 0.53, 0.99],
+        "left_knee": [0.42, 0.7, 0.99],
+        "right_knee": [0.55, 0.68, 0.99],
+        "left_ankle": [0.4, 0.88, 0.99],
+        "right_ankle": [0.6, 0.86, 0.99]
+      }
+    },
+    {
+      "index": 4,
+      "time_sec": 1.5,
+      "count_display": "4",
+      "label": "4",
+      "description": "Wrap in — elbows soft",
+      "memo": "",
+      "transition": "",
+      "pose": {
+        "nose": [0.5, 0.23, 0.99],
+        "left_shoulder": [0.43, 0.33, 0.99],
+        "right_shoulder": [0.57, 0.33, 0.99],
+        "left_elbow": [0.38, 0.48, 0.99],
+        "right_elbow": [0.62, 0.48, 0.99],
+        "left_wrist": [0.35, 0.6, 0.99],
+        "right_wrist": [0.65, 0.6, 0.99],
+        "left_hand": [0.33, 0.64, 0.99],
+        "right_hand": [0.67, 0.64, 0.99],
+        "left_hip": [0.44, 0.55, 0.99],
+        "right_hip": [0.56, 0.55, 0.99],
+        "left_knee": [0.43, 0.72, 0.99],
+        "right_knee": [0.57, 0.72, 0.99],
+        "left_ankle": [0.42, 0.9, 0.99],
+        "right_ankle": [0.58, 0.9, 0.99]
+      }
+    },
+    {
+      "index": 5,
+      "time_sec": 2.0,
+      "count_display": "5",
+      "label": "5",
+      "description": "",
+      "memo": "Fill in after watching video",
+      "transition": "",
+      "pose": null
     }
   ]
 }

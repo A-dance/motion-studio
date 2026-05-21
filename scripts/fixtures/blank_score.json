@@ -1,0 +1,15 @@
+{
+  "version": 4,
+  "title": "",
+  "audio": { "bpm": 120, "counts_per_phrase": 16 },
+  "counts": [
+    { "index": 1, "count_display": "1", "description": "", "memo": "", "transition": "" },
+    { "index": 2, "count_display": "2&", "description": "", "memo": "", "transition": "" },
+    { "index": 3, "count_display": "3", "description": "", "memo": "", "transition": "" },
+    { "index": 4, "count_display": "4&", "description": "", "memo": "", "transition": "" },
+    { "index": 5, "count_display": "5", "description": "", "memo": "", "transition": "" },
+    { "index": 6, "count_display": "6&", "description": "", "memo": "", "transition": "" },
+    { "index": 7, "count_display": "7", "description": "", "memo": "", "transition": "" },
+    { "index": 8, "count_display": "8&", "description": "", "memo": "", "transition": "" }
+  ]
+}
