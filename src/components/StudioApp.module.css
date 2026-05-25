@@ -97,6 +97,13 @@
   min-width:   54px;
 }
 .stageHint { font-size: 11px; color: #806060; }
+.rotModeTag {
+  font-size:   11px;
+  color:       #f0a030;
+  font-weight: 600;
+  animation:   pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
 
 .stageWrap {
   flex:      1;
@@ -259,11 +266,11 @@
 
 /* ── 追加ツールバー ────────────────────────────────────── */
 .addToolbar {
-  display:   grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap:       4px;
+  display: flex;
+  gap:     4px;
 }
 .btnAdd {
+  flex:           1;
   display:        flex;
   flex-direction: column;
   align-items:    center;
@@ -279,19 +286,6 @@
 }
 .btnAdd:hover { background: #302020; }
 .btnAdd svg { width: 26px; height: 26px; }
-
-.fieldMini {
-  grid-column:   1 / -1;
-  background:    #201614;
-  border:        1px solid #3a2420;
-  border-radius: 5px;
-  color:         #d8c0c4;
-  padding:       5px 8px;
-  font-size:     11px;
-  outline:       none;
-  user-select:   text;
-}
-.fieldMini:focus { border-color: #c87898; }
 .addFb { font-size: 10px; color: #80b860; }
 
 /* ── 矢印調整スライダー ─────────────────────────────── */
@@ -361,6 +355,50 @@
   animation:  fadeOut 2s 0.5s forwards;
 }
 @keyframes fadeOut { to { opacity: 0; } }
+
+/* ── 関節 P/Y/R 編集パネル ─────────────────────────────── */
+.pyrRow {
+  display:   flex;
+  gap:       4px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.pyrCell {
+  display:     flex;
+  align-items: center;
+  gap:         2px;
+  flex:        1;
+}
+.pyrLabel {
+  font-size:   10px;
+  font-weight: 700;
+  color:       #a08090;
+  min-width:   12px;
+}
+.pyrInput {
+  width:         100%;
+  min-width:     0;
+  background:    #271e1a;
+  border:        1px solid #5a3040;
+  border-radius: 3px;
+  color:         #f0d0e0;
+  font-size:     12px;
+  font-weight:   600;
+  padding:       3px 4px;
+  outline:       none;
+  text-align:    center;
+  /* hide spin buttons */
+  -moz-appearance: textfield;
+}
+.pyrInput::-webkit-outer-spin-button,
+.pyrInput::-webkit-inner-spin-button { -webkit-appearance: none; }
+.pyrInput:focus { border-color: #e07090; background: #2e1820; }
+.pyrDeg { font-size: 10px; color: #705060; }
+.pyrHint {
+  font-size:  9px;
+  color:      #604050;
+  margin:     2px 0 0;
+}
 
 /* ── インライン編集 ────────────────────────────────────── */
 .inlineEdit {

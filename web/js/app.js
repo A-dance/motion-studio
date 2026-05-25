@@ -1,31 +1,37 @@
 /**
  * app.js — Dance Sequence Note メインアプリ
  *
- * アーキテクチャ:
- *   pose-3d.js  → Three.js 3D アバター（ライト・シャドウ・関節ドラッグ・オービット）
- *   canvas-items.js → 2D アノテーション（矢印・文字）を #annotCanvas に描画
- *   stageWrap   → 全ポインターイベントを一元管理（アノテーション → 関節 → オービット）
+ * ポーズ = boneRot { boneId: [pitchX, yawY, rollZ] }（度数）
+ * 操作  = ギズモリング（X:赤 / Y:緑 / Z:青）をドラッグして回転
+ * 旧来の座標ベース IK / enrichPoseHands は廃止。
  */
-import { STAND_POSE, clonePose, createStage } from "./pose-3d.js";
+import {
+  BONE_DEFS, BONE_LABELS, REST_POSE,
+  cloneBoneRot, clampBoneRot,
+  createStage,
+} from "./pose-3d.js";
 import {
   createItem,
-  dragItemArcStart,
-  dragItemBendCP,
-  dragItemRotate,
-  dragItemTip,
-  hitTestItems,
-  drawAnnotCanvas,
+  dragItemArcStart, dragItemBendCP, dragItemRotate, dragItemTip,
+  hitTestItems, drawAnnotCanvas,
 } from "./canvas-items.js";
 
-// ─── DOM ──────────────────────────────────────────────────
-const stageWrap   = document.getElementById("stageWrap");
-const viewport3d  = document.getElementById("viewport3d");
-const annotCanvas = document.getElementById("annotCanvas");
+// ─── DOM ────────────────────────────────────────────────────
+const stageWrap    = document.getElementById("stageWrap");
+const viewport3d   = document.getElementById("viewport3d");
+const annotCanvas  = document.getElementById("annotCanvas");
 
-const bodyYawEl  = document.getElementById("bodyYaw");
-const bodyYawLbl = document.getElementById("bodyYawLbl");
-const headYawEl  = document.getElementById("headYaw");
-const headYawLbl = document.getElementById("headYawLbl");
+const bodyYawEl    = document.getElementById("bodyYaw");
+const bodyYawLbl   = document.getElementById("bodyYawLbl");
+const headYawEl    = document.getElementById("headYaw");
+const headYawLbl   = document.getElementById("headYawLbl");
+
+const armScaleEl   = document.getElementById("armScale");
+const armScaleLbl  = document.getElementById("armScaleLbl");
+const legScaleEl   = document.getElementById("legScale");
+const legScaleLbl  = document.getElementById("legScaleLbl");
+
+const selectedBoneLbl = document.getElementById("selectedBoneLbl");
 
 const dirAngle    = document.getElementById("dirAngle");
 const dirAngleLbl = document.getElementById("dirAngleLbl");
@@ -47,33 +53,34 @@ const countLabel    = document.getElementById("currentCountLabel");
 const workNameEl    = document.getElementById("workName");
 const saveHint      = document.getElementById("saveHint");
 
-// インライン文字編集
 const inlineEditEl    = document.getElementById("inlineEdit");
 const inlineEditInput = document.getElementById("inlineEditInput");
 
-// ─── 定数 ─────────────────────────────────────────────────
-const LS_KEY            = "dance-studio-v4";
+// ─── 定数 ────────────────────────────────────────────────────
+const LS_KEY            = "dance-studio-v5";   // 旧 v4 と互換なし（新フォーマット）
 const COUNTS_PER_PHRASE = 16;
 
-// ─── 状態 ─────────────────────────────────────────────────
-let work       = loadWork() ?? makeWork();
-let phraseIdx  = 0;
-let countIdx   = 0;
+// ドラッグ感度: 度数 / ピクセル
+const GIZMO_SENSITIVITY = 0.45;
 
-let selectedJoint  = null;
-let selectedItemId = null;
-let editingItemId  = null; // インライン編集中のアイテム
+// ─── 状態 ────────────────────────────────────────────────────
+let work           = loadWork() ?? makeWork();
+let phraseIdx      = 0;
+let countIdx       = 0;
 
-let dragKind   = null; // "joint"|"item-tip"|"item-rotate"|"item-arc-start"|"item-bend-cp"|"item-move"
-let dragJoint  = null;
+let selectedBoneId = null;   // 選択中ボーン
+let selectedItemId = null;   // 選択中アノテーション
+let editingItemId  = null;
+
+let dragKind   = null;
+// "gizmo-x" | "gizmo-y" | "gizmo-z" | "item-*" | "orbit"
 let dragItemId = null;
 
 let addFbTimer = 0;
 let saveTimer  = 0;
+let stage      = null;
 
-let stage = null; // Three.js ステージ
-
-// ─── データ構造 ────────────────────────────────────────────
+// ─── データ ─────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
 function phraseLabel(idx) {
@@ -83,7 +90,14 @@ function phraseLabel(idx) {
 }
 
 function makeCount(n) {
-  return { n, pose: clonePose(STAND_POSE), items: [], bodyYaw: 0, headYaw: 0 };
+  return {
+    n,
+    boneRot:   cloneBoneRot(REST_POSE),
+    items:     [],
+    bodyYaw:   0,
+    headYaw:   0,
+    boneScale: { armScale: 1, legScale: 1 },
+  };
 }
 
 function makePhrase(idx) {
@@ -103,23 +117,23 @@ function current() {
 }
 
 function selectedItem() {
-  return current().items.find((i) => i.id === selectedItemId) ?? null;
+  return current().items.find(i => i.id === selectedItemId) ?? null;
 }
 
+/** ポーズが REST と異なるか（タイムラインのマーカー用） */
 function hasContent(c) {
   if (!c) return false;
   if (c.items?.length > 0) return true;
   if (Math.abs(c.bodyYaw ?? 0) > 1 || Math.abs(c.headYaw ?? 0) > 1) return true;
-  for (const id of Object.keys(STAND_POSE)) {
-    const p = c.pose?.[id];
-    if (!p) continue;
-    const s = STAND_POSE[id];
-    if (Math.abs(p[0] - s[0]) > 0.03 || Math.abs(p[1] - s[1]) > 0.03) return true;
+  const br = c.boneRot ?? {};
+  for (const id of Object.keys(REST_POSE)) {
+    const r = br[id] ?? [0, 0, 0];
+    if (Math.abs(r[0]) > 2 || Math.abs(r[1]) > 2 || Math.abs(r[2]) > 2) return true;
   }
   return false;
 }
 
-// ─── 保存 / 読み込み ─────────────────────────────────────
+// ─── 保存 / 読み込み ────────────────────────────────────────
 function saveWork() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(work)); } catch { /* ignore */ }
 }
@@ -130,12 +144,20 @@ function loadWork() {
     if (!raw) return null;
     const w = JSON.parse(raw);
     if (!w?.phrases?.length) return null;
+    // 各カウントを最新構造に補完
     for (const phrase of w.phrases) {
       for (const c of phrase.counts) {
-        c.pose    = { ...clonePose(STAND_POSE), ...c.pose };
-        c.items   = c.items   ?? [];
-        c.headYaw = c.headYaw ?? 0;
-        c.bodyYaw = c.bodyYaw ?? 0;
+        if (!c.boneRot) c.boneRot = cloneBoneRot(REST_POSE);
+        else {
+          // 新しいボーンが増えた場合に REST_POSE で補完
+          for (const id of Object.keys(REST_POSE)) {
+            if (!c.boneRot[id]) c.boneRot[id] = [0, 0, 0];
+          }
+        }
+        c.items     = c.items     ?? [];
+        c.headYaw   = c.headYaw   ?? 0;
+        c.bodyYaw   = c.bodyYaw   ?? 0;
+        c.boneScale = c.boneScale ?? { armScale: 1, legScale: 1 };
       }
     }
     return w;
@@ -147,12 +169,15 @@ function scheduleSave() {
   saveTimer = setTimeout(saveWork, 800);
 }
 
-// ─── レンダリング ──────────────────────────────────────────
+// ─── レンダリング ────────────────────────────────────────────
 function draw() {
   const c = current();
-  // Three.js アバター
-  stage?.render(c.pose, { bodyYaw: c.bodyYaw, headYaw: c.headYaw ?? 0, selectedJoint });
-  // 2D アノテーション
+  stage?.render(c.boneRot, {
+    bodyYaw:        c.bodyYaw,
+    headYaw:        c.headYaw ?? 0,
+    selectedBoneId,
+    boneScale:      c.boneScale ?? {},
+  });
   drawAnnotCanvas(annotCanvas, c.items, selectedItemId);
   updateControls();
   scheduleSave();
@@ -163,26 +188,40 @@ function updateControls() {
   const isStraight = item?.type === "arrow";
   const isSpin     = item?.type === "spin";
   const isArrow    = isStraight || isSpin;
-  const isText     = item?.type === "text";
   const c          = current();
 
   if (btnDeleteItem) btnDeleteItem.disabled = !item;
-
-  // itemControls セクション
   if (itemControls) {
-    const show = isArrow || isText;
-    itemControls.classList.toggle("item-ctrl--idle", !show);
+    itemControls.classList.toggle("item-ctrl--idle", !isArrow && item?.type !== "text");
     if (itemCtrlTitle) itemCtrlTitle.textContent = isArrow ? "矢印の調整" : "テキスト";
   }
 
-  // ポーズスライダー
+  // 選択ボーン表示
+  if (selectedBoneLbl) {
+    selectedBoneLbl.textContent = selectedBoneId
+      ? `選択: ${BONE_LABELS[selectedBoneId] ?? selectedBoneId}`
+      : "関節をクリックして選択";
+  }
+
+  // Body yaw
   if (bodyYawEl) {
     bodyYawEl.value = String(Math.round(c.bodyYaw) % 360);
     if (bodyYawLbl) bodyYawLbl.textContent = `${bodyYawEl.value}°`;
   }
+  // Head yaw
   if (headYawEl) {
     headYawEl.value = String(Math.round(c.headYaw ?? 0));
     if (headYawLbl) headYawLbl.textContent = `${headYawEl.value}°`;
+  }
+  // Bone scale
+  const { armScale = 1, legScale = 1 } = c.boneScale ?? {};
+  if (armScaleEl) {
+    armScaleEl.value = String(armScale);
+    if (armScaleLbl) armScaleLbl.textContent = `×${Number(armScale).toFixed(2)}`;
+  }
+  if (legScaleEl) {
+    legScaleEl.value = String(legScale);
+    if (legScaleLbl) legScaleLbl.textContent = `×${Number(legScale).toFixed(2)}`;
   }
 
   // 矢印スライダー
@@ -200,47 +239,44 @@ function updateControls() {
       if (dirPowerLbl) dirPowerLbl.textContent = `${dirPower.value}%`;
     }
   }
-
-  // 曲がり: 直線矢印のみ
   bendRow?.classList.toggle("hidden", !isStraight);
-  if (isStraight) {
-    if (dirBend) {
-      dirBend.value = String(Math.round(item.bend ?? 0));
-      if (dirBendLbl) dirBendLbl.textContent = String(Math.round(item.bend ?? 0));
-    }
+  if (isStraight && dirBend) {
+    dirBend.value = String(Math.round(item.bend ?? 0));
+    if (dirBendLbl) dirBendLbl.textContent = String(Math.round(item.bend ?? 0));
   }
-
-  // 傾き: 両方の矢印
   tiltRow?.classList.toggle("hidden", !isArrow);
-  if (isArrow) {
-    if (dirTilt) {
-      dirTilt.value = String(Math.round(item.tilt ?? 0) % 360);
-      if (dirTiltLbl) dirTiltLbl.textContent = `${dirTilt.value}°`;
-    }
+  if (isArrow && dirTilt) {
+    dirTilt.value = String(Math.round(item.tilt ?? 0) % 360);
+    if (dirTiltLbl) dirTiltLbl.textContent = `${dirTilt.value}°`;
   }
 
   // カウントラベル
   const phrase = work.phrases[phraseIdx];
   if (countLabel) countLabel.textContent = `${phrase.label} – ${countIdx + 1}`;
-
-  // 作品名（フォーカス中は上書きしない）
-  if (workNameEl && document.activeElement !== workNameEl) {
-    workNameEl.value = work.name ?? "";
-  }
+  if (workNameEl && document.activeElement !== workNameEl) workNameEl.value = work.name ?? "";
 }
 
-// ─── アイテム操作 ─────────────────────────────────────────
-function selectItem(id) { selectedItemId = id; selectedJoint = null; draw(); }
-function selectJoint(id) { selectedJoint = id; selectedItemId = null; draw(); }
+// ─── 選択 ─────────────────────────────────────────────────────
+function selectBone(id) {
+  selectedBoneId = id;
+  selectedItemId = null;
+  draw();
+}
+
+function selectItem(id) {
+  selectedItemId = id;
+  selectedBoneId = null;
+  draw();
+}
 
 function deleteSelectedItem() {
   if (!selectedItemId) return;
-  current().items = current().items.filter((i) => i.id !== selectedItemId);
+  current().items = current().items.filter(i => i.id !== selectedItemId);
   selectedItemId  = null;
   draw();
 }
 
-// ─── stageWrap のポインターイベント ────────────────────────
+// ─── ポインターイベント ─────────────────────────────────────
 stageWrap?.addEventListener("pointerdown", onPointerDown, { capture: true });
 stageWrap?.addEventListener("pointermove", onPointerMove);
 stageWrap?.addEventListener("pointerup",   endDrag);
@@ -255,14 +291,24 @@ function stageNorm(ev) {
 }
 
 function onPointerDown(ev) {
-  // インライン編集中はクリックをそのまま通す
   if (ev.target === inlineEditInput) return;
   closeInlineEdit(true);
 
   const { x, y } = stageNorm(ev);
   const c = current();
 
-  // 1. 2D アノテーションアイテムへのヒット
+  // 1. ギズモリングへのヒット（ボーン選択中のみ）
+  if (stage && selectedBoneId) {
+    const axis = stage.hitTestGizmo(x, y);
+    if (axis) {
+      dragKind = `gizmo-${axis}`;
+      ev.preventDefault();
+      stageWrap.setPointerCapture(ev.pointerId);
+      return;
+    }
+  }
+
+  // 2. アノテーションアイテムへのヒット
   annotCanvas.width  = annotCanvas.width  || stageWrap.clientWidth;
   annotCanvas.height = annotCanvas.height || stageWrap.clientHeight;
   const hit = hitTestItems(c.items, x, y, annotCanvas);
@@ -280,26 +326,22 @@ function onPointerDown(ev) {
     return;
   }
 
-  // 2. Three.js 関節へのヒット
+  // 3. 関節球へのヒット → 選択 + ギズモ表示
   if (stage) {
-    const joint = stage.hitTestJoint(x, y);
-    if (joint) {
-      dragKind  = "joint";
-      dragJoint = joint;
-      selectJoint(joint);
+    const boneId = stage.hitTestJoint(x, y);
+    if (boneId) {
+      selectBone(boneId);
       ev.preventDefault();
       stageWrap.setPointerCapture(ev.pointerId);
       return;
     }
   }
 
-  // 3. 背景 → オービット
+  // 4. 背景 → オービット（選択は解除しない）
   selectedItemId = null;
-  selectedJoint  = null;
   dragKind       = "orbit";
   stage?.orbitStart(x, y);
   stageWrap.setPointerCapture(ev.pointerId);
-  draw();
 }
 
 function onPointerMove(ev) {
@@ -307,21 +349,30 @@ function onPointerMove(ev) {
   const { x, y } = stageNorm(ev);
   const c = current();
 
+  // ギズモドラッグ
+  if (dragKind.startsWith("gizmo-") && selectedBoneId) {
+    const axis = dragKind[6]; // "x" | "y" | "z"
+    let deltaDeg;
+    if (axis === "x") deltaDeg = ev.movementY * -GIZMO_SENSITIVITY;
+    else if (axis === "y") deltaDeg = ev.movementX *  GIZMO_SENSITIVITY;
+    else                   deltaDeg = ev.movementX *  GIZMO_SENSITIVITY;
+
+    const rot = [...(c.boneRot[selectedBoneId] ?? [0, 0, 0])];
+    if (axis === "x") rot[0] += deltaDeg;
+    else if (axis === "y") rot[1] += deltaDeg;
+    else                   rot[2] += deltaDeg;
+
+    c.boneRot[selectedBoneId] = clampBoneRot(selectedBoneId, rot);
+    draw();
+    return;
+  }
+
   if (dragKind === "orbit") {
     stage?.orbitMove(x, y);
     return;
   }
 
-  if (dragKind === "joint" && dragJoint && stage) {
-    const newPos = stage.getDraggedPos(dragJoint, x, y);
-    if (newPos) {
-      c.pose[dragJoint] = newPos;
-      draw();
-    }
-    return;
-  }
-
-  const item = c.items.find((i) => i.id === dragItemId);
+  const item = c.items.find(i => i.id === dragItemId);
   if (!item) return;
 
   if      (dragKind === "item-tip")       dragItemTip(item, x, y, annotCanvas);
@@ -338,13 +389,12 @@ function onPointerMove(ev) {
 function endDrag(ev) {
   if (dragKind === "orbit") stage?.orbitEnd();
   dragKind   = null;
-  dragJoint  = null;
   dragItemId = null;
   try { stageWrap.releasePointerCapture(ev.pointerId); } catch { /* ignore */ }
 }
 
 // ─── ダブルクリック: インライン文字編集 ────────────────────
-stageWrap?.addEventListener("dblclick", (ev) => {
+stageWrap?.addEventListener("dblclick", ev => {
   const { x, y } = stageNorm(ev);
   annotCanvas.width  = annotCanvas.width  || stageWrap.clientWidth;
   annotCanvas.height = annotCanvas.height || stageWrap.clientHeight;
@@ -358,11 +408,9 @@ stageWrap?.addEventListener("dblclick", (ev) => {
 function openInlineEdit(item, clientX, clientY) {
   editingItemId = item.id;
   selectedItemId = item.id;
-
   inlineEditEl.style.left = `${clientX}px`;
   inlineEditEl.style.top  = `${clientY}px`;
   inlineEditEl.classList.remove("hidden");
-
   inlineEditInput.value = item.text || "";
   inlineEditInput.style.fontSize = `${Math.max(12, (item.fontSize ?? 18) * 0.85)}px`;
   inlineEditInput.focus();
@@ -372,7 +420,7 @@ function openInlineEdit(item, clientX, clientY) {
 function closeInlineEdit(commit = true) {
   if (!editingItemId) return;
   if (commit) {
-    const item = current().items.find((i) => i.id === editingItemId);
+    const item = current().items.find(i => i.id === editingItemId);
     if (item && inlineEditInput) item.text = inlineEditInput.value || item.text;
   }
   editingItemId = null;
@@ -380,7 +428,7 @@ function closeInlineEdit(commit = true) {
   draw();
 }
 
-inlineEditInput?.addEventListener("keydown", (ev) => {
+inlineEditInput?.addEventListener("keydown", ev => {
   if (ev.key === "Enter" || ev.key === "Escape") {
     ev.preventDefault();
     closeInlineEdit(ev.key === "Enter");
@@ -388,25 +436,35 @@ inlineEditInput?.addEventListener("keydown", (ev) => {
 });
 inlineEditInput?.addEventListener("blur", () => closeInlineEdit(true));
 
-// ─── ポーズ操作 ────────────────────────────────────────────
-document.querySelector("[data-preset]")?.addEventListener("click", () => {
+// ─── ポーズリセット ────────────────────────────────────────
+document.querySelector("[data-preset='reset']")?.addEventListener("click", () => {
   const c = current();
-  c.pose    = clonePose(STAND_POSE);
-  c.bodyYaw = 0;
-  c.headYaw = 0;
+  c.boneRot   = cloneBoneRot(REST_POSE);
+  c.bodyYaw   = 0;
+  c.headYaw   = 0;
+  c.boneScale = { armScale: 1, legScale: 1 };
+  selectedBoneId = null;
   draw();
 });
 
-bodyYawEl?.addEventListener("input", () => {
-  current().bodyYaw = Number(bodyYawEl.value);
+// ─── Body/Head Yaw スライダー ──────────────────────────────
+bodyYawEl?.addEventListener("input", () => { current().bodyYaw = Number(bodyYawEl.value); draw(); });
+headYawEl?.addEventListener("input", () => { current().headYaw = Number(headYawEl.value); draw(); });
+
+// ─── ボーンスケールスライダー ──────────────────────────────
+armScaleEl?.addEventListener("input", () => {
+  current().boneScale ??= {};
+  current().boneScale.armScale = Number(armScaleEl.value);
   draw();
 });
-headYawEl?.addEventListener("input", () => {
-  current().headYaw = Number(headYawEl.value);
+legScaleEl?.addEventListener("input", () => {
+  current().boneScale ??= {};
+  current().boneScale.legScale = Number(legScaleEl.value);
   draw();
 });
 
-document.querySelectorAll("[data-view]").forEach((btn) => {
+// ─── ビュープリセット ──────────────────────────────────────
+document.querySelectorAll("[data-view]").forEach(btn => {
   const ANGLE = { front: 0, diag: 45, side: 85 };
   btn.addEventListener("click", () => {
     current().bodyYaw = ANGLE[btn.dataset.view] ?? 0;
@@ -418,18 +476,20 @@ document.querySelectorAll("[data-view]").forEach((btn) => {
   });
 });
 
+// ─── カウントコピー ────────────────────────────────────────
 document.getElementById("btnCopyCount")?.addEventListener("click", () => {
   const phrase  = work.phrases[phraseIdx];
   const nextIdx = countIdx + 1;
   if (nextIdx < COUNTS_PER_PHRASE) {
     const src = current();
     const dst = phrase.counts[nextIdx];
-    dst.pose    = clonePose(src.pose);
-    dst.bodyYaw = src.bodyYaw;
-    dst.headYaw = src.headYaw ?? 0;
-    countIdx    = nextIdx;
+    dst.boneRot   = cloneBoneRot(src.boneRot);
+    dst.bodyYaw   = src.bodyYaw;
+    dst.headYaw   = src.headYaw ?? 0;
+    dst.boneScale = { ...(src.boneScale ?? {}) };
+    countIdx      = nextIdx;
     selectedItemId = null;
-    selectedJoint  = null;
+    selectedBoneId = null;
     rebuildTimeline();
     draw();
   }
@@ -444,9 +504,8 @@ document.getElementById("btnAddPhrase")?.addEventListener("click", () => {
   draw();
 });
 
-// ─── 作品名 ───────────────────────────────────────────────
+// ─── 作品名 ────────────────────────────────────────────────
 workNameEl?.addEventListener("input", () => { work.name = workNameEl.value; scheduleSave(); });
-
 document.getElementById("btnSaveWork")?.addEventListener("click", () => {
   saveWork();
   if (saveHint) {
@@ -454,33 +513,28 @@ document.getElementById("btnSaveWork")?.addEventListener("click", () => {
     setTimeout(() => { saveHint.textContent = ""; }, 2500);
   }
 });
-
 document.getElementById("btnNewWork")?.addEventListener("click", () => {
   if (!confirm("現在の内容を破棄して新しい作品を始めますか？")) return;
   work      = makeWork();
-  phraseIdx = 0;
-  countIdx  = 0;
-  selectedItemId = null;
-  selectedJoint  = null;
+  phraseIdx = 0; countIdx = 0;
+  selectedItemId = null; selectedBoneId = null;
   rebuildTimeline();
   draw();
 });
 
-// ─── キャンバスアイテム追加 ────────────────────────────────
+// ─── アイテム追加 ──────────────────────────────────────────
 function showFb(msg) {
   if (!addFeedback) return;
   addFeedback.textContent = msg;
   clearTimeout(addFbTimer);
   addFbTimer = setTimeout(() => { addFeedback.textContent = ""; }, 3000);
 }
-
 function flashStage() {
   stageWrap?.classList.remove("canvas-stack--added");
   void stageWrap?.offsetWidth;
   stageWrap?.classList.add("canvas-stack--added");
   setTimeout(() => stageWrap?.classList.remove("canvas-stack--added"), 600);
 }
-
 function addAnnotItem(type, x, y, extra = {}, msg) {
   const item = createItem(type, x, y, extra);
   current().items.push(item);
@@ -489,13 +543,9 @@ function addAnnotItem(type, x, y, extra = {}, msg) {
   flashStage();
 }
 
-document.getElementById("btnAddStraightArrow")?.addEventListener("click", () => {
-  addAnnotItem("arrow", 0.5, 0.62, { bend: 0 }, "進む矢印を追加");
-});
-document.getElementById("btnAddSpinArrow")?.addEventListener("click", () => {
-  addAnnotItem("spin", 0.5, 0.50, { angle: 30 }, "回転の矢印を追加");
-});
-document.getElementById("btnAddText")?.addEventListener("click", () => {
+document.getElementById("btnAddStraightArrow")?.addEventListener("click", () => addAnnotItem("arrow",  0.5, 0.62, { bend: 0 }, "進む矢印を追加"));
+document.getElementById("btnAddSpinArrow")    ?.addEventListener("click", () => addAnnotItem("spin",   0.5, 0.50, { angle: 30 }, "回転の矢印を追加"));
+document.getElementById("btnAddText")         ?.addEventListener("click", () => {
   const text = document.getElementById("fieldMotion")?.value.trim() || "メモ";
   addAnnotItem("text", 0.5, 0.35, { text }, `「${text}」を追加`);
 });
@@ -510,40 +560,36 @@ function bindSlider(el, fn) {
     drawAnnotCanvas(annotCanvas, current().items, selectedItemId);
   });
 }
-bindSlider(dirAngle, (item) => { item.angle = Number(dirAngle.value); });
-bindSlider(dirPower, (item) => { item.power = Number(dirPower.value) / 100; });
-bindSlider(dirBend,  (item) => { item.bend  = Number(dirBend.value); });
-bindSlider(dirTilt,  (item) => { item.tilt  = Number(dirTilt.value); });
+bindSlider(dirAngle, item => { item.angle = Number(dirAngle.value); });
+bindSlider(dirPower, item => { item.power = Number(dirPower.value) / 100; });
+bindSlider(dirBend,  item => { item.bend  = Number(dirBend.value); });
+bindSlider(dirTilt,  item => { item.tilt  = Number(dirTilt.value); });
 
-// ─── アイテム削除 ─────────────────────────────────────────
 btnDeleteItem?.addEventListener("click", deleteSelectedItem);
 
-// ─── キーボードショートカット ─────────────────────────────
-document.addEventListener("keydown", (ev) => {
-  // インライン編集中は委任
+// ─── キーボード ────────────────────────────────────────────
+document.addEventListener("keydown", ev => {
   if (ev.target === inlineEditInput) return;
   if (ev.target.matches("input, textarea")) return;
 
   if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
     ev.preventDefault();
-    const delta = ev.key === "ArrowRight" ? 1 : -1;
-    countIdx = Math.max(0, Math.min(COUNTS_PER_PHRASE - 1, countIdx + delta));
-    selectedItemId = null;
-    selectedJoint  = null;
-    rebuildTimeline();
-    draw();
+    countIdx = Math.max(0, Math.min(COUNTS_PER_PHRASE - 1, countIdx + (ev.key === "ArrowRight" ? 1 : -1)));
+    selectedItemId = null; selectedBoneId = null;
+    rebuildTimeline(); draw();
     return;
   }
-
-  if (ev.key === "Delete" || ev.key === "Backspace") {
-    if (selectedItemId) {
-      ev.preventDefault();
-      deleteSelectedItem();
-    }
+  if (ev.key === "Escape") {
+    selectedBoneId = null; draw();
+    return;
+  }
+  if ((ev.key === "Delete" || ev.key === "Backspace") && selectedItemId) {
+    ev.preventDefault();
+    deleteSelectedItem();
   }
 });
 
-// ─── タイムライン ─────────────────────────────────────────
+// ─── タイムライン ──────────────────────────────────────────
 function rebuildTimeline() {
   const container = document.getElementById("phraseTimeline");
   if (!container) return;
@@ -554,7 +600,7 @@ function rebuildTimeline() {
     row.className = "phrase-row";
 
     const lbl = document.createElement("span");
-    lbl.className   = "phrase-label";
+    lbl.className = "phrase-label";
     lbl.textContent = phrase.label;
     row.appendChild(lbl);
 
@@ -563,11 +609,11 @@ function rebuildTimeline() {
 
     phrase.counts.forEach((count, ci) => {
       if (ci === 8) {
-        const d     = document.createElement("span");
+        const d = document.createElement("span");
         d.className = "count-divider";
         chips.appendChild(d);
       }
-      const btn       = document.createElement("button");
+      const btn = document.createElement("button");
       btn.type        = "button";
       btn.className   = "count-chip";
       btn.textContent = ci + 1;
@@ -575,16 +621,15 @@ function rebuildTimeline() {
       if (hasContent(count)) btn.classList.add("has-pose");
       btn.addEventListener("click", () => {
         phraseIdx = pi; countIdx = ci;
-        selectedItemId = null; selectedJoint = null;
+        selectedItemId = null; selectedBoneId = null;
         rebuildTimeline(); draw();
       });
       chips.appendChild(btn);
     });
-
     row.appendChild(chips);
 
     if (work.phrases.length > 1) {
-      const del       = document.createElement("button");
+      const del = document.createElement("button");
       del.type        = "button";
       del.className   = "btn-phrase-del";
       del.textContent = "×";
@@ -611,28 +656,24 @@ function onResize() {
   draw();
 }
 
-// ─── 起動 ──────────────────────────────────────────────────
+// ─── 起動 ─────────────────────────────────────────────────
 (async function boot() {
-  // Three.js ステージ初期化
   try {
     stage = createStage(viewport3d);
   } catch (e) {
     console.error("Three.js の初期化に失敗しました:", e);
   }
 
-  // annotCanvas を viewport3d と同じサイズに
   const initW = viewport3d.clientWidth  || 440;
   const initH = viewport3d.clientHeight || 560;
   annotCanvas.width  = initW;
   annotCanvas.height = initH;
 
-  // リサイズ監視
   if (typeof ResizeObserver !== "undefined") {
     new ResizeObserver(onResize).observe(viewport3d);
   }
   window.addEventListener("resize", onResize);
 
-  // 初回描画
   rebuildTimeline();
   draw();
 })();

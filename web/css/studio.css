@@ -144,6 +144,16 @@ input  { font: inherit; color: inherit; }
   color: var(--muted);
 }
 
+.bone-sel-hint {
+  font-size: 0.72rem;
+  color: var(--accent);
+  margin: 2px 0 6px;
+  padding: 4px 8px;
+  background: rgba(255,144,184,0.12);
+  border-radius: 6px;
+  min-height: 1.6em;
+}
+
 /* Three.js viewport + annotation canvas */
 .stage-wrap {
   position: relative;

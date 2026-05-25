@@ -1,70 +1,129 @@
 /**
- * pose-3d.js — Three.js 3D ダンサーステージ
+ * pose-3d.js — 回転ベース FK ダンサーステージ
  *
- * 座標系: Y-up, 身長 ~2.7 units
- *   ankleL/R: y ≈ -0.95, head: y ≈ 1.75
+ * FK は Three.js ボーン行列ではなく、独自クォータニオン計算で実装。
+ * ポーズ形式: { boneId: [pitchX, yawY, rollZ] }（度数）
  *
- * ポーズ形式: { jointId: [x, y, z], ... }
- * bodyYaw: figureGroup を Y 軸回転（正面←→横）
- * headYaw: headGroup を Y 軸回転 → 鼻ドットで方向表示
+ * 操作: 関節をクリック → ギズモリング（X:赤 / Y:緑 / Z:青）が表示
+ *       リングをドラッグ → その軸で回転
  */
 import * as THREE from "three";
 
-// ─── デフォルトポーズ ───────────────────────────────────
-export const STAND_POSE = {
-  head:   [  0,    1.75,  0  ],
-  neck:   [  0,    1.50,  0  ],
-  shldrL: [ -0.46, 1.40,  0  ],
-  shldrR: [  0.46, 1.40,  0  ],
-  elbowL: [ -0.54, 0.90,  0  ],
-  elbowR: [  0.54, 0.90,  0  ],
-  wristL: [ -0.54, 0.40,  0  ],
-  wristR: [  0.54, 0.40,  0  ],
-  hip:    [  0,    0.84,  0  ],
-  hipL:   [ -0.22, 0.72,  0  ],
-  hipR:   [  0.22, 0.72,  0  ],
-  kneeL:  [ -0.22, 0.00,  0  ],
-  kneeR:  [  0.22, 0.00,  0  ],
-  ankleL: [ -0.22, -0.95, 0  ],
-  ankleR: [  0.22, -0.95, 0  ],
-};
+// ─── ボーン定義 ─────────────────────────────────────────────
+// offset: 親ボーンからの相対オフセット（立ちポーズ / 全回転ゼロ時）
+export const BONE_DEFS = [
+  { id: "hip",    parent: null,     offset: [0,      0.84,   0    ], r: 0.095, label: "腰" },
+  { id: "neck",   parent: "hip",    offset: [0,      0.66,   0    ], r: 0.055, label: "首" },
+  { id: "head",   parent: "neck",   offset: [0,      0.25,   0    ], r: 0.125, label: "頭" },
+  { id: "shldrL", parent: "neck",   offset: [-0.46, -0.10,   0    ], r: 0.088, label: "左肩" },
+  { id: "elbowL", parent: "shldrL", offset: [-0.08, -0.50,   0    ], r: 0.065, label: "左肘" },
+  { id: "wristL", parent: "elbowL", offset: [0,     -0.50,   0    ], r: 0.058, label: "左手首" },
+  { id: "handL",  parent: "wristL", offset: [0,     -0.18,   0    ], r: 0.048, label: "左手" },
+  { id: "shldrR", parent: "neck",   offset: [0.46,  -0.10,   0    ], r: 0.088, label: "右肩" },
+  { id: "elbowR", parent: "shldrR", offset: [0.08,  -0.50,   0    ], r: 0.065, label: "右肘" },
+  { id: "wristR", parent: "elbowR", offset: [0,     -0.50,   0    ], r: 0.058, label: "右手首" },
+  { id: "handR",  parent: "wristR", offset: [0,     -0.18,   0    ], r: 0.048, label: "右手" },
+  { id: "hipL",   parent: "hip",    offset: [-0.22, -0.12,   0    ], r: 0.080, label: "左股" },
+  { id: "kneeL",  parent: "hipL",   offset: [0,     -0.72,   0    ], r: 0.073, label: "左膝" },
+  { id: "ankleL", parent: "kneeL",  offset: [0,     -0.93,   0    ], r: 0.058, label: "左足首" },
+  { id: "footL",  parent: "ankleL", offset: [0,     -0.06,   0.13 ], r: 0.044, label: "左足" },
+  { id: "hipR",   parent: "hip",    offset: [0.22,  -0.12,   0    ], r: 0.080, label: "右股" },
+  { id: "kneeR",  parent: "hipR",   offset: [0,     -0.72,   0    ], r: 0.073, label: "右膝" },
+  { id: "ankleR", parent: "kneeR",  offset: [0,     -0.93,   0    ], r: 0.058, label: "右足首" },
+  { id: "footR",  parent: "ankleR", offset: [0,     -0.06,   0.13 ], r: 0.044, label: "右足" },
+];
 
-export function clonePose(p) {
+export const BONE_LABELS = Object.fromEntries(BONE_DEFS.map(d => [d.id, d.label]));
+export const REST_POSE   = Object.fromEntries(BONE_DEFS.map(d => [d.id, [0, 0, 0]]));
+
+export function cloneBoneRot(br) {
   const r = {};
-  for (const [k, v] of Object.entries(p)) r[k] = [...v];
+  for (const [k, v] of Object.entries(br)) r[k] = [...v];
   return r;
 }
 
-// ─── スケルトン定義 ──────────────────────────────────────
-const JOINT_DEFS = [
-  { id: "head",   r: 0.125 },
-  { id: "neck",   r: 0.052 },
-  { id: "shldrL", r: 0.088 }, { id: "shldrR", r: 0.088 },
-  { id: "elbowL", r: 0.065 }, { id: "elbowR", r: 0.065 },
-  { id: "wristL", r: 0.055 }, { id: "wristR", r: 0.055 },
-  { id: "hip",    r: 0.095 },
-  { id: "hipL",   r: 0.080 }, { id: "hipR",   r: 0.080 },
-  { id: "kneeL",  r: 0.073 }, { id: "kneeR",  r: 0.073 },
-  { id: "ankleL", r: 0.055 }, { id: "ankleR", r: 0.055 },
-];
+export const BONE_LIMITS = {
+  hip:    { x:[-40,  40], y:[-60,  60], z:[-35,  35] },
+  neck:   { x:[-60,  60], y:[-90,  90], z:[-50,  50] },
+  head:   { x:[-35,  35], y:[-75,  75], z:[-35,  35] },
+  shldrL: { x:[-90, 180], y:[-100,100], z:[-90,  90] },
+  shldrR: { x:[-90, 180], y:[-100,100], z:[-90,  90] },
+  elbowL: { x:[-10,  10], y:[-10,  10], z:[-150,  5] },
+  elbowR: { x:[-10,  10], y:[-10,  10], z:[-5,  150] },
+  wristL: { x:[-85,  85], y:[-90,  90], z:[-75,  75] },
+  wristR: { x:[-85,  85], y:[-90,  90], z:[-75,  75] },
+  handL:  { x:[-65,  65], y:[-65,  65], z:[-45,  45] },
+  handR:  { x:[-65,  65], y:[-65,  65], z:[-45,  45] },
+  hipL:   { x:[-130, 45], y:[-55,  55], z:[-65,  65] },
+  hipR:   { x:[-130, 45], y:[-55,  55], z:[-65,  65] },
+  kneeL:  { x:[0,   155], y:[-20,  20], z:[-15,  15] },
+  kneeR:  { x:[0,   155], y:[-20,  20], z:[-15,  15] },
+  ankleL: { x:[-50,  55], y:[-35,  35], z:[-40,  40] },
+  ankleR: { x:[-50,  55], y:[-35,  35], z:[-40,  40] },
+  footL:  { x:[-25,  35], y:[-35,  35], z:[-25,  25] },
+  footR:  { x:[-25,  35], y:[-35,  35], z:[-25,  25] },
+};
 
-const BONE_PAIRS = [
-  ["head",   "neck"],
-  ["neck",   "shldrL"], ["neck",   "shldrR"],
-  ["neck",   "hip"],                            // 脊柱
-  ["shldrL", "elbowL"], ["elbowL", "wristL"],
-  ["shldrR", "elbowR"], ["elbowR", "wristR"],
-  ["hip",    "hipL"],   ["hip",    "hipR"],
-  ["hipL",   "kneeL"],  ["kneeL",  "ankleL"],
-  ["hipR",   "kneeR"],  ["kneeR",  "ankleR"],
-];
+export function clampBoneRot(boneId, rot) {
+  const lim = BONE_LIMITS[boneId];
+  if (!lim) return rot;
+  return [
+    Math.max(lim.x[0], Math.min(lim.x[1], rot[0])),
+    Math.max(lim.y[0], Math.min(lim.y[1], rot[1])),
+    Math.max(lim.z[0], Math.min(lim.z[1], rot[2])),
+  ];
+}
 
-// ─── ステージ作成 ────────────────────────────────────────
+// ─── FK: 全ボーンのワールド座標を計算 ────────────────────────
+// BONE_DEFS は「親が先、子が後」の順になっている → 単純ループで OK
+const _tmpQ  = new THREE.Quaternion();
+const _tmpE  = new THREE.Euler();
+const _tmpV  = new THREE.Vector3();
+
+/**
+ * boneRot と bodyYaw からすべてのボーンのワールド座標を返す。
+ * Three.js ボーン行列は使わず、クォータニオン数学で直接計算。
+ *
+ * @param {Object} boneRot - { boneId: [rx,ry,rz] } 度数
+ * @param {number} bodyYaw - 全体回転（度数）
+ * @returns {{ [boneId]: THREE.Vector3 }}
+ */
+function computeFK(boneRot, bodyYaw) {
+  const DEG = Math.PI / 180;
+  const wPos  = {};  // ワールド位置
+  const wQuat = {};  // ワールド回転（累積）
+
+  // 全体の body yaw クォータニオン
+  const bodyQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, bodyYaw * DEG, 0));
+
+  for (const def of BONE_DEFS) {
+    const rot = boneRot[def.id] ?? [0, 0, 0];
+    _tmpE.set(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG);
+    const localQ = new THREE.Quaternion().setFromEuler(_tmpE);
+
+    if (!def.parent) {
+      // ルートボーン (hip): bodyQ 込みでオフセットを適用
+      _tmpV.set(...def.offset).applyQuaternion(bodyQ);
+      wPos[def.id]  = new THREE.Vector3().copy(_tmpV);
+      wQuat[def.id] = bodyQ.clone().multiply(localQ);
+    } else {
+      const pPos  = wPos[def.parent];
+      const pQuat = wQuat[def.parent];
+      _tmpV.set(...def.offset).applyQuaternion(pQuat);
+      wPos[def.id]  = new THREE.Vector3().addVectors(pPos, _tmpV);
+      wQuat[def.id] = pQuat.clone().multiply(localQ);
+    }
+  }
+
+  return wPos;
+}
+
+// ─── ステージ作成 ─────────────────────────────────────────────
 export function createStage(container) {
   const W = container.clientWidth  || 440;
   const H = container.clientHeight || 560;
 
-  // ── レンダラー ──────────────────────────────────────
+  // ── レンダラー ──────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled   = true;
@@ -76,265 +135,336 @@ export function createStage(container) {
   renderer.domElement.style.cssText = "display:block;width:100%;height:100%;";
   container.appendChild(renderer.domElement);
 
-  // ── シーン ──────────────────────────────────────────
+  // ── シーン ──────────────────────────────────────────────
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x181410);
   scene.fog        = new THREE.Fog(0x181410, 9, 22);
 
-  // ── カメラ ──────────────────────────────────────────
-  const camera    = new THREE.PerspectiveCamera(40, W / H, 0.1, 50);
-  const CAM_LOOK  = new THREE.Vector3(0, 0.75, 0);
-  let camTheta    = 0;
-  let camPhi      = 0.10;
-  const CAM_R     = 5.8;
+  // ── カメラ ──────────────────────────────────────────────
+  const camera   = new THREE.PerspectiveCamera(40, W / H, 0.1, 50);
+  const CAM_LOOK = new THREE.Vector3(0, 0.75, 0);
+  let   camTheta = 0;
+  let   camPhi   = 0.10;
+  const CAM_R    = 5.8;
 
   function posCamera() {
     camera.position.set(
       CAM_R * Math.sin(camTheta) * Math.cos(camPhi),
       CAM_LOOK.y + CAM_R * Math.sin(camPhi),
-      CAM_R * Math.cos(camTheta) * Math.cos(camPhi)
+      CAM_R * Math.cos(camTheta) * Math.cos(camPhi),
     );
     camera.lookAt(CAM_LOOK);
   }
   posCamera();
 
-  // ── ライト ──────────────────────────────────────────
-  // アンビエント（柔らかい全体光）
-  scene.add(new THREE.AmbientLight(0xfff0d4, 0.50));
+  // ── ライト ──────────────────────────────────────────────
+  scene.add(new THREE.AmbientLight(0xfff0d4, 0.55));
 
-  // メインライト（影あり）
-  const key = new THREE.DirectionalLight(0xfff8f0, 1.7);
-  key.position.set(2.5, 5, 3);
-  key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
-  key.shadow.camera.left   = -3;
-  key.shadow.camera.right  =  3;
-  key.shadow.camera.top    =  4;
-  key.shadow.camera.bottom = -2;
-  key.shadow.camera.near   = 0.5;
-  key.shadow.camera.far    = 20;
-  key.shadow.bias          = -0.003;
-  key.shadow.normalBias    = 0.02;
-  scene.add(key);
+  const keyLight = new THREE.DirectionalLight(0xfff8f0, 1.7);
+  keyLight.position.set(2.5, 5, 3);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.camera.left   = -3; keyLight.shadow.camera.right  =  3;
+  keyLight.shadow.camera.top    =  4; keyLight.shadow.camera.bottom = -2;
+  keyLight.shadow.camera.near   = 0.5;
+  keyLight.shadow.camera.far    = 20;
+  keyLight.shadow.bias          = -0.003;
+  keyLight.shadow.normalBias    = 0.02;
+  scene.add(keyLight);
 
-  // フィルライト（左から柔らかい青白い補助光）
-  const fill = new THREE.DirectionalLight(0xc8dcf8, 0.50);
-  fill.position.set(-3, 2, 1);
-  scene.add(fill);
+  const fillLight = new THREE.DirectionalLight(0xc8dcf8, 0.50);
+  fillLight.position.set(-3, 2, 1);
+  scene.add(fillLight);
 
-  // リムライト（後方からゴールドの輪郭光）
-  const rim = new THREE.DirectionalLight(0xf0c840, 0.40);
-  rim.position.set(0.5, 0, -4);
-  scene.add(rim);
+  const rimLight = new THREE.DirectionalLight(0xf0c840, 0.40);
+  rimLight.position.set(0.5, 0, -4);
+  scene.add(rimLight);
 
-  // ── フロア ──────────────────────────────────────────
-  const floorMat = new THREE.MeshStandardMaterial({
-    color: 0x1e1810, roughness: 0.90, metalness: 0.08,
-  });
-  const floorMesh = new THREE.Mesh(new THREE.CircleGeometry(4, 64), floorMat);
+  // ── フロア ──────────────────────────────────────────────
+  const floorMesh = new THREE.Mesh(
+    new THREE.CircleGeometry(4, 64),
+    new THREE.MeshStandardMaterial({ color: 0x1e1810, roughness: 0.90, metalness: 0.08 }),
+  );
   floorMesh.rotation.x = -Math.PI / 2;
   floorMesh.position.y = -1.0;
   floorMesh.receiveShadow = true;
   scene.add(floorMesh);
 
-  // グリッドライン
   const grid = new THREE.GridHelper(6, 20, 0x4a3828, 0x38281a);
   grid.position.y = -0.99;
   scene.add(grid);
 
-  // ── マテリアル ──────────────────────────────────────
-  // 通常関節: 温かみのあるローズ
-  const mBase = new THREE.MeshStandardMaterial({
-    color: 0xdca8bc, roughness: 0.55, metalness: 0.10,
-  });
-  // 選択中: ピンク + 発光
-  const mSel = new THREE.MeshStandardMaterial({
+  // ── マテリアル ──────────────────────────────────────────
+  const mBase = new THREE.MeshStandardMaterial({ color: 0xdca8bc, roughness: 0.55, metalness: 0.10 });
+  const mSel  = new THREE.MeshStandardMaterial({
     color: 0xff90b8,
-    emissive: new THREE.Color(0xff4070),
-    emissiveIntensity: 0.65,
-    roughness: 0.35,
-    metalness: 0.15,
+    emissive: new THREE.Color(0xff4070), emissiveIntensity: 0.70,
+    roughness: 0.30, metalness: 0.18,
   });
-  // 骨: 少し暗め
-  const mBone = new THREE.MeshStandardMaterial({
-    color: 0xb89098, roughness: 0.68, metalness: 0.06,
+  const mEnd = new THREE.MeshStandardMaterial({ color: 0xf0d060, roughness: 0.45, metalness: 0.20 });
+  const mEndSel = new THREE.MeshStandardMaterial({
+    color: 0xffe080,
+    emissive: new THREE.Color(0xffaa00), emissiveIntensity: 0.55,
+    roughness: 0.30, metalness: 0.25,
   });
+  const mBone = new THREE.MeshStandardMaterial({ color: 0xb89098, roughness: 0.68, metalness: 0.06 });
 
-  // ── フィギュアグループ ──────────────────────────────
-  const figureGroup = new THREE.Group();
-  scene.add(figureGroup);
-
-  // 関節メッシュを作成
+  // ── 関節球メッシュ ──────────────────────────────────────
   const jointMeshes = {};
-  for (const { id, r } of JOINT_DEFS) {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 16, 12),
-      mBase.clone()
-    );
+  for (const def of BONE_DEFS) {
+    const isEnd = def.id.startsWith("hand") || def.id.startsWith("foot");
+    const geom  = isEnd
+      ? new THREE.BoxGeometry(def.r * 2.2, def.r * 1.2, def.r * 3.0)
+      : new THREE.SphereGeometry(def.r, 16, 12);
+    const mesh = new THREE.Mesh(geom, mBase.clone());
     mesh.castShadow    = true;
     mesh.receiveShadow = true;
-    mesh.userData.id   = id;
-    jointMeshes[id]    = mesh;
+    mesh.userData.boneId = def.id;
+    mesh.userData.isEnd  = isEnd;
+    scene.add(mesh);
+    jointMeshes[def.id] = mesh;
   }
 
-  // 頭グループ（headYaw + 鼻インジケーター）
-  const headGroup = new THREE.Group();
-  headGroup.add(jointMeshes.head);
-
+  // 鼻インジケーター（頭の向き）
   const noseMesh = new THREE.Mesh(
     new THREE.SphereGeometry(0.036, 8, 6),
     new THREE.MeshStandardMaterial({
       color: 0xd06080, emissive: new THREE.Color(0xc04060), emissiveIntensity: 0.35,
-    })
+    }),
   );
-  noseMesh.position.set(0, 0.01, 0.135); // 頭の正面に
-  headGroup.add(noseMesh);
-  figureGroup.add(headGroup);
+  scene.add(noseMesh);
 
-  // head 以外は直接 figureGroup に追加
-  for (const { id } of JOINT_DEFS) {
-    if (id !== "head") figureGroup.add(jointMeshes[id]);
-  }
-
-  // 骨メッシュ
+  // ── 骨シリンダーメッシュ ────────────────────────────────
+  const BONE_PAIRS = BONE_DEFS.filter(d => d.parent).map(d => [d.parent, d.id]);
   const boneMeshes = {};
   for (const [a, b] of BONE_PAIRS) {
-    // 上が細く、下が少し太い
     const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.026, 1, 9),
-      mBone.clone()
+      new THREE.CylinderGeometry(0.033, 0.024, 1, 9),
+      mBone.clone(),
     );
     mesh.castShadow    = true;
     mesh.receiveShadow = true;
     boneMeshes[`${a}__${b}`] = mesh;
-    figureGroup.add(mesh);
+    scene.add(mesh);
   }
 
-  // ── ヘルパー ────────────────────────────────────────
-  const UP      = new THREE.Vector3(0, 1, 0);
-  const tmpDir  = new THREE.Vector3();
-  const tmpMid  = new THREE.Vector3();
+  // ── ギズモリング ──────────────────────────────────────────
+  const GIZMO_R    = 0.27;
+  const GIZMO_TUBE = 0.024;
 
-  function getLocalPos(id) {
-    // head は headGroup の位置（headGroup.position が頭の位置）
-    return id === "head" ? headGroup.position : jointMeshes[id].position;
+  const gizmoGroup = new THREE.Group();
+  scene.add(gizmoGroup);
+  gizmoGroup.visible = false;
+
+  function makeRing(color, rotX, rotY, axis) {
+    const m = new THREE.Mesh(
+      new THREE.TorusGeometry(GIZMO_R, GIZMO_TUBE, 10, 64),
+      new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 }),
+    );
+    if (rotX) m.rotation.x = rotX;
+    if (rotY) m.rotation.y = rotY;
+    m.renderOrder       = 10;
+    m.userData.axis     = axis;
+    return m;
   }
+  const gizX = makeRing(0xff3333, 0, Math.PI / 2, "x"); // X 軸（赤・YZ 平面）
+  const gizY = makeRing(0x33dd33, 0, 0,           "y"); // Y 軸（緑・XZ 平面）
+  const gizZ = makeRing(0x4488ff, Math.PI / 2, 0, "z"); // Z 軸（青・XY 平面）
+  gizmoGroup.add(gizX, gizY, gizZ);
 
-  function refreshBones() {
-    for (const [a, b] of BONE_PAIRS) {
-      const pa   = getLocalPos(a);
-      const pb   = getLocalPos(b);
-      const mesh = boneMeshes[`${a}__${b}`];
-      tmpDir.subVectors(pb, pa);
-      const len = tmpDir.length();
-      if (len < 0.005) { mesh.visible = false; continue; }
-      mesh.visible = true;
-      tmpMid.addVectors(pa, pb).multiplyScalar(0.5);
-      mesh.position.copy(tmpMid);
-      mesh.scale.y = len;
-      mesh.quaternion.setFromUnitVectors(UP, tmpDir.normalize());
-    }
-  }
-
-  // ── ドラッグ / オービット ──────────────────────────
-  const raycaster  = new THREE.Raycaster();
-  const dragPlane  = new THREE.Plane();
-  const planeHit   = new THREE.Vector3();
-  const camDir     = new THREE.Vector3();
+  // ── ヘルパー ────────────────────────────────────────────
+  const UP       = new THREE.Vector3(0, 1, 0);
+  const tmpDir   = new THREE.Vector3();
+  const tmpMid   = new THREE.Vector3();
+  const tmpA     = new THREE.Vector3();
+  const tmpB     = new THREE.Vector3();
+  const raycaster = new THREE.Raycaster();
 
   let orbitActive = false;
   let orbitLast   = { x: 0, y: 0 };
 
-  function toNDC(nx, ny) {
-    return new THREE.Vector2(nx * 2 - 1, -(ny * 2 - 1));
+  function toNDC(nx, ny) { return new THREE.Vector2(nx * 2 - 1, -(ny * 2 - 1)); }
+
+  // ── ボーンスケール ──────────────────────────────────────
+  // boneScale は render 時に boneRot に反映するのではなく、
+  // offset を拡縮することで FK 計算前に適用する。
+  // ※ 現状は computeFK を直接変更せず、scale 付き boneRot を作る。
+  //    実装を単純にするため scale は offset 調整で行う。
+  let _armScale = 1;
+  let _legScale = 1;
+
+  // 元オフセットを保存
+  const BASE_OFFSETS = Object.fromEntries(BONE_DEFS.map(d => [d.id, [...d.offset]]));
+
+  function applyBoneScale(armScale, legScale) {
+    if (armScale === _armScale && legScale === _legScale) return;
+    _armScale = armScale;
+    _legScale = legScale;
+    const armIds = ["elbowL","wristL","handL","elbowR","wristR","handR"];
+    const legIds = ["kneeL","ankleL","footL","kneeR","ankleR","footR"];
+    for (const id of armIds) {
+      const b = BASE_OFFSETS[id];
+      BONE_DEFS.find(d => d.id === id).offset = [b[0]*armScale, b[1]*armScale, b[2]*armScale];
+    }
+    for (const id of legIds) {
+      const b = BASE_OFFSETS[id];
+      BONE_DEFS.find(d => d.id === id).offset = [b[0]*legScale, b[1]*legScale, b[2]*legScale];
+    }
   }
 
-  // ── パブリック API ──────────────────────────────────
+  // ── ビジュアル更新 ──────────────────────────────────────
+  function updateVisuals(worldPos, selectedBoneId, headWorldQuat) {
+    const headPos = worldPos.head;
 
-  /**
-   * ポーズ・yaw を反映してレンダリング
-   * @param {Object} pose  - { jointId: [x,y,z] }
-   * @param {Object} opts  - { bodyYaw, headYaw, selectedJoint }
-   */
-  function render(pose, opts = {}) {
-    const { bodyYaw = 0, headYaw = 0, selectedJoint: sel = null } = opts;
-
-    figureGroup.rotation.y = (bodyYaw * Math.PI) / 180;
-    headGroup.rotation.y   = -(headYaw * Math.PI) / 180;
-
-    for (const { id } of JOINT_DEFS) {
-      const pos = pose[id];
+    for (const def of BONE_DEFS) {
+      const pos  = worldPos[def.id];
       if (!pos) continue;
-      if (id === "head") {
-        headGroup.position.set(pos[0], pos[1], pos[2]);
-      } else {
-        jointMeshes[id].position.set(pos[0], pos[1], pos[2]);
+
+      // 関節球の位置
+      jointMeshes[def.id].position.copy(pos);
+
+      // hand/foot はボーン方向に合わせる
+      if (def.id.startsWith("hand") || def.id.startsWith("foot")) {
+        const parentPos = worldPos[def.parent];
+        if (parentPos) {
+          tmpDir.subVectors(pos, parentPos);
+          if (tmpDir.length() > 0.01) {
+            jointMeshes[def.id].quaternion.setFromUnitVectors(UP, tmpDir.normalize());
+          }
+        }
       }
-      // 選択中マテリアル
-      jointMeshes[id].material = sel === id ? mSel : mBase;
+
+      // マテリアル（選択中は発光）
+      const isSel = (def.id === selectedBoneId);
+      const isEnd = def.id.startsWith("hand") || def.id.startsWith("foot");
+      if (isSel)      jointMeshes[def.id].material = isEnd ? mEndSel : mSel;
+      else if (isEnd) jointMeshes[def.id].material = mEnd;
+      else            jointMeshes[def.id].material = mBase;
     }
 
-    refreshBones();
+    // 鼻インジケーター（頭の向きを示す）
+    if (headPos && headWorldQuat) {
+      const noseFwd = new THREE.Vector3(0, 0, 0.135).applyQuaternion(headWorldQuat);
+      noseMesh.position.copy(headPos).add(noseFwd);
+      noseMesh.visible = true;
+    } else {
+      noseMesh.visible = false;
+    }
+
+    // シリンダー（骨）
+    for (const [a, b] of BONE_PAIRS) {
+      const pa = worldPos[a];
+      const pb = worldPos[b];
+      if (!pa || !pb) continue;
+      tmpA.copy(pa); tmpB.copy(pb);
+      tmpDir.subVectors(tmpB, tmpA);
+      const len = tmpDir.length();
+      const mesh = boneMeshes[`${a}__${b}`];
+      if (len < 0.005) { mesh.visible = false; continue; }
+      mesh.visible = true;
+      tmpMid.addVectors(tmpA, tmpB).multiplyScalar(0.5);
+      mesh.position.copy(tmpMid);
+      mesh.scale.y = len;
+      mesh.quaternion.setFromUnitVectors(UP, tmpDir.normalize());
+    }
+
+    // ギズモをボーンのワールド位置に配置
+    if (selectedBoneId && worldPos[selectedBoneId]) {
+      gizmoGroup.position.copy(worldPos[selectedBoneId]);
+      gizmoGroup.visible = true;
+    } else {
+      gizmoGroup.visible = false;
+    }
+  }
+
+  // ── パブリック API ──────────────────────────────────────
+
+  /**
+   * ボーン回転を適用してレンダリング
+   * @param {Object} boneRot       - { boneId: [rx,ry,rz] } 度数
+   * @param {Object} [opts]
+   * @param {number} [opts.bodyYaw]
+   * @param {number} [opts.headYaw]
+   * @param {string|null} [opts.selectedBoneId]
+   * @param {Object} [opts.boneScale]
+   */
+  function render(boneRot = {}, opts = {}) {
+    const { bodyYaw = 0, headYaw = 0, selectedBoneId = null, boneScale = {} } = opts;
+
+    // ボーンスケール適用
+    const { armScale = 1, legScale = 1 } = boneScale;
+    applyBoneScale(armScale, legScale);
+
+    // headYaw を head ボーンの Y 回転に統合（コピーして変更）
+    const effectiveBoneRot = Object.assign({}, boneRot);
+    const headRot = effectiveBoneRot.head ? [...effectiveBoneRot.head] : [0, 0, 0];
+    headRot[1] = headRot[1] - headYaw;
+    effectiveBoneRot.head = headRot;
+
+    // FK でワールド座標を計算
+    const worldPos = computeFK(effectiveBoneRot, bodyYaw);
+
+    // 頭のワールドクォータニオンを取得（鼻インジケーター用）
+    // computeFK 内で計算した wQuat を使うには別途返す必要がある。
+    // 簡易版: noseMesh に別途 FK を走らせず、頭の向きから direction を近似。
+    const headQ = computeHeadQuat(effectiveBoneRot, bodyYaw);
+
+    // ビジュアルを更新
+    updateVisuals(worldPos, selectedBoneId, headQ);
+
+    // レンダリング
     renderer.render(scene, camera);
   }
 
+  /** 頭のワールドクォータニオンを返す（鼻インジケーター用） */
+  function computeHeadQuat(boneRot, bodyYaw) {
+    const DEG = Math.PI / 180;
+    const bodyQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, bodyYaw * DEG, 0));
+    let q = bodyQ.clone();
+    // hip → neck → head の回転を累積
+    const chain = ["hip", "neck", "head"];
+    for (const id of chain) {
+      const rot = boneRot[id] ?? [0, 0, 0];
+      const lq = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(rot[0]*DEG, rot[1]*DEG, rot[2]*DEG)
+      );
+      q = q.multiply(lq);
+    }
+    return q;
+  }
+
   /**
-   * 画面上 (normX, normY) が関節にヒットするか判定
-   * @returns {string|null} jointId or null
+   * 画面位置 (normX, normY) が関節球にヒットするか判定
+   * @returns {string|null} boneId
    */
   function hitTestJoint(normX, normY) {
     raycaster.setFromCamera(toNDC(normX, normY), camera);
-    const meshList = Object.values(jointMeshes); // head sphere も含まれる
-    const hits = raycaster.intersectObjects(meshList, false);
-    return hits.length > 0 ? hits[0].object.userData.id : null;
+    const hits = raycaster.intersectObjects(Object.values(jointMeshes), false);
+    return hits.length ? hits[0].object.userData.boneId : null;
   }
 
   /**
-   * ドラッグ中の関節の新しいローカル座標を返す
-   * @param {string} jointId - ドラッグ中の関節 ID
-   * @param {number} normX, normY - 現在のマウス位置 (0-1)
-   * @returns {[number,number,number]|null}
+   * ギズモリングにヒットするか判定
+   * @returns {"x"|"y"|"z"|null}
    */
-  function getDraggedPos(jointId, normX, normY) {
-    // 関節のワールド位置を取得
-    const anchor = jointId === "head" ? headGroup : jointMeshes[jointId];
-    const worldPos = new THREE.Vector3();
-    anchor.getWorldPosition(worldPos);
-
-    // カメラ向き法線の平面（ドラッグ平面）を設定
-    camera.getWorldDirection(camDir);
-    dragPlane.setFromNormalAndCoplanarPoint(camDir, worldPos);
-
+  function hitTestGizmo(normX, normY) {
+    if (!gizmoGroup.visible) return null;
     raycaster.setFromCamera(toNDC(normX, normY), camera);
-    if (!raycaster.ray.intersectPlane(dragPlane, planeHit)) return null;
-
-    // ワールド座標 → figureGroup ローカル座標に変換
-    const local = figureGroup.worldToLocal(planeHit.clone());
-    return [local.x, local.y, local.z];
+    const hits = raycaster.intersectObjects([gizX, gizY, gizZ], false);
+    return hits.length ? hits[0].object.userData.axis : null;
   }
 
-  /** カメラオービット開始 */
-  function orbitStart(normX, normY) {
-    orbitActive = true;
-    orbitLast   = { x: normX, y: normY };
-  }
-
-  /** カメラオービット移動 */
-  function orbitMove(normX, normY) {
+  function orbitStart(nx, ny)  { orbitActive = true; orbitLast = { x: nx, y: ny }; }
+  function orbitMove(nx, ny) {
     if (!orbitActive) return;
-    const dx = normX - orbitLast.x;
-    const dy = normY - orbitLast.y;
-    camTheta -= dx * 3.0;
-    camPhi    = Math.max(-0.28, Math.min(1.15, camPhi + dy * 1.6));
-    orbitLast = { x: normX, y: normY };
+    camTheta -= (nx - orbitLast.x) * 3.0;
+    camPhi    = Math.max(-0.28, Math.min(1.15, camPhi + (ny - orbitLast.y) * 1.6));
+    orbitLast = { x: nx, y: ny };
     posCamera();
     renderer.render(scene, camera);
   }
-
-  /** カメラオービット終了 */
   function orbitEnd() { orbitActive = false; }
 
-  /** レンダラーリサイズ */
   function resize(w, h) {
     renderer.setSize(w, h);
     camera.aspect = w / h;
@@ -342,11 +472,10 @@ export function createStage(container) {
     renderer.render(scene, camera);
   }
 
-  /** クリーンアップ */
   function dispose() {
     renderer.dispose();
     renderer.domElement?.parentNode?.removeChild(renderer.domElement);
   }
 
-  return { render, hitTestJoint, getDraggedPos, orbitStart, orbitMove, orbitEnd, resize, dispose };
+  return { render, hitTestJoint, hitTestGizmo, orbitStart, orbitMove, orbitEnd, resize, dispose };
 }

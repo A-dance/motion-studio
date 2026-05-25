@@ -17,11 +17,14 @@ export const STAND_POSE: Pose = {
   hipR:   [  0.22, 0.72,  0    ],
   kneeL:  [ -0.22, 0.00,  0    ],
   kneeR:  [  0.22, 0.00,  0    ],
-  ankleL: [ -0.22, -0.95, 0    ],
-  ankleR: [  0.22, -0.95, 0    ],
-  footL:  [ -0.22, -1.12, 0.07 ],
-  footR:  [  0.22, -1.12, 0.07 ],
+  ankleL: [ -0.22, -0.93, 0    ],
+  ankleR: [  0.22, -0.93, 0    ],
+  footL:  [ -0.22, -0.99, 0.13 ],
+  footR:  [  0.22, -0.99, 0.13 ],
 };
+
+// 床の y 下限（Three.js シーンの floor y = -1.0 に合わせる）
+export const FLOOR_Y = -1.00;
 
 export function clonePose(p: Pose): Pose {
   const r: Pose = {};
@@ -39,7 +42,90 @@ export function phraseLabel(idx: number): string {
 }
 
 export function makeCount(n: number): Count {
-  return { n, pose: clonePose(STAND_POSE), items: [], bodyYaw: 0, headYaw: 0 };
+  return { n, pose: clonePose(STAND_POSE), items: [], bodyYaw: 0, headYaw: 0, endRot: {}, boneRot: {} };
+}
+
+// ─── 親子関係マップ（FK 連動用） ────────────────────────────
+/** 関節 ID → その子孫関節 ID の配列（FK 回転で連動させるリスト） */
+export const CHILD_JOINTS: Record<string, string[]> = {
+  head:   [],
+  neck:   ["head"],
+  hip:    ["hipL","kneeL","ankleL","footL","hipR","kneeR","ankleR","footR"],
+  shldrL: ["elbowL","wristL","handL"],
+  shldrR: ["elbowR","wristR","handR"],
+  elbowL: ["wristL","handL"],
+  elbowR: ["wristR","handR"],
+  wristL: ["handL"],
+  wristR: ["handR"],
+  handL:  [],
+  handR:  [],
+  hipL:   ["kneeL","ankleL","footL"],
+  hipR:   ["kneeR","ankleR","footR"],
+  kneeL:  ["ankleL","footL"],
+  kneeR:  ["ankleR","footR"],
+  ankleL: ["footL"],
+  ankleR: ["footR"],
+  footL:  [],
+  footR:  [],
+};
+
+/** 関節 ID → 表示名（日本語） */
+export const JOINT_LABELS: Record<string, string> = {
+  head:   "頭",   neck:   "首",
+  shldrL: "左肩", shldrR: "右肩",
+  elbowL: "左肘", elbowR: "右肘",
+  wristL: "左手首", wristR: "右手首",
+  handL:  "左手", handR:  "右手",
+  hip:    "腰",
+  hipL:   "左股関節", hipR: "右股関節",
+  kneeL:  "左膝", kneeR: "右膝",
+  ankleL: "左足首", ankleR: "右足首",
+  footL:  "左足先", footR: "右足先",
+};
+
+/**
+ * 指定した関節を軸に、その子孫関節を world 軸で delta 度回転させる（FK）。
+ * 関節自身の位置は動かさず、子孫のみを移動する。
+ *
+ * @param pose    現在のポーズ
+ * @param jointId 回転軸の関節
+ * @param axis    "x" | "y" | "z" (ワールド軸)
+ * @param deltaDeg 回転量（度数）
+ */
+export function rotateJointChildren(
+  pose: Pose,
+  jointId: string,
+  axis: "x" | "y" | "z",
+  deltaDeg: number,
+): Pose {
+  const children = CHILD_JOINTS[jointId];
+  if (!children || children.length === 0) return pose;
+
+  const angle = deltaDeg * (Math.PI / 180);
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const pivot = pose[jointId] as Vec3 | undefined;
+  if (!pivot) return pose;
+
+  function rotVec(v: Vec3): Vec3 {
+    const [dx, dy, dz] = [v[0] - pivot![0], v[1] - pivot![1], v[2] - pivot![2]];
+    let rx: number, ry: number, rz: number;
+    if (axis === "x") {
+      rx = dx; ry = dy * c - dz * s; rz = dy * s + dz * c;
+    } else if (axis === "y") {
+      rx = dx * c + dz * s; ry = dy; rz = -dx * s + dz * c;
+    } else {
+      rx = dx * c - dy * s; ry = dx * s + dy * c; rz = dz;
+    }
+    return [pivot![0] + rx, pivot![1] + ry, pivot![2] + rz];
+  }
+
+  const newPose: Pose = { ...pose };
+  for (const cid of children) {
+    const cpos = pose[cid] as Vec3 | undefined;
+    if (cpos) newPose[cid] = rotVec(cpos);
+  }
+  return newPose;
 }
 
 export function makePhrase(idx: number): Phrase {
@@ -115,10 +201,10 @@ function solve2BoneIK(root: Vec3, target: Vec3, L1: number, L2: number, poleVec:
   ];
 }
 
-// デフォルトポールベクター（腕：肘が後ろ方向、足：膝が前方向）
+// デフォルトポールベクター（腕：肘が後ろ下方向、足：膝が前方向）
 const DEFAULT_POLES: Record<string, Vec3> = {
-  shldrR: [0, -0.3, -1], shldrL: [0, -0.3, -1],
-  hipR:   [0, -0.2,  1], hipL:   [0, -0.2,  1],
+  shldrR: [0, -0.6, -1], shldrL: [0, -0.6, -1],
+  hipR:   [0,  0.0,  1], hipL:   [0,  0.0,  1],
 };
 
 /**
@@ -138,15 +224,15 @@ export function applyChainIK(pose: Pose, draggedId: string, newPos: Vec3): Pose 
   const p = { ...pose };
   p[draggedId] = newPos;
 
-  type Chain = [string, string, string, string]; // [root, mid, tip, end]
+  type Chain = { j: [string,string,string,string]; isLeg: boolean };
   const CHAINS: Chain[] = [
-    ["shldrR","elbowR","wristR","handR"],
-    ["shldrL","elbowL","wristL","handL"],
-    ["hipR",  "kneeR", "ankleR","footR"],
-    ["hipL",  "kneeL", "ankleL","footL"],
+    { j: ["shldrR","elbowR","wristR","handR"], isLeg: false },
+    { j: ["shldrL","elbowL","wristL","handL"], isLeg: false },
+    { j: ["hipR",  "kneeR", "ankleR","footR"], isLeg: true  },
+    { j: ["hipL",  "kneeL", "ankleL","footL"], isLeg: true  },
   ];
 
-  for (const ch of CHAINS) {
+  for (const { j: ch, isLeg } of CHAINS) {
     const idx = ch.indexOf(draggedId);
     if (idx < 0) continue;
 
@@ -192,14 +278,24 @@ export function applyChainIK(pose: Pose, draggedId: string, newPos: Vec3): Pose 
       }
     }
 
-    // ---- ポールベクター: 現在の肘/膝位置から生成 ----
-    const curMid    = pose[mid] as Vec3;
-    const toTarget  = vNorm(vSub(ikTarget, rootPos));
-    const dotCM     = vDot(vSub(curMid, rootPos), toTarget);
-    const projCM    = vAdd(rootPos, vScale(toTarget, dotCM));
-    let poleVec     = vSub(curMid, projCM);  // perpendicular component
-    if (vLen(poleVec) < 0.04) {
-      poleVec = DEFAULT_POLES[root] ?? [0, 1, 0];
+    // ---- ポールベクター: 現在の肘/膝位置 + デフォルト方向のブレンド ----
+    const curMid      = pose[mid] as Vec3;
+    const toTarget    = vNorm(vSub(ikTarget, rootPos));
+    const dotCM       = vDot(vSub(curMid, rootPos), toTarget);
+    const projCM      = vAdd(rootPos, vScale(toTarget, dotCM));
+    const fromCurrent = vSub(curMid, projCM);  // perpendicular component
+    const defPole     = DEFAULT_POLES[root] ?? [0, 1, 0];
+
+    // 現在位置が有効なら 70% 活用し、30% はデフォルト方向でブレンド（安定性向上）
+    let poleVec: Vec3;
+    if (vLen(fromCurrent) > 0.05) {
+      poleVec = [
+        fromCurrent[0] * 0.7 + defPole[0] * 0.3,
+        fromCurrent[1] * 0.7 + defPole[1] * 0.3,
+        fromCurrent[2] * 0.7 + defPole[2] * 0.3,
+      ];
+    } else {
+      poleVec = defPole;
     }
 
     // ---- 2ボーン IK で肘/膝位置を解く ----
@@ -207,13 +303,21 @@ export function applyChainIK(pose: Pose, draggedId: string, newPos: Vec3): Pose 
     p[mid] = newMid;
     p[tip] = ikTarget;
 
-    // 終端を延伸
+    // 終端を延伸（下部ボーン方向に追従させる）
     if (idx === 3) {
       p[end] = newPos;
     } else {
-      // 手首ドラッグ時は手のひらを前腕方向に延伸
-      const armDir = vNorm(vSub(ikTarget, newMid));
-      p[end] = vAdd(ikTarget, vScale(armDir, L3));
+      // 手首/足首ドラッグ → 手のひら/足先は前腕/下腿方向に延伸
+      const lowerBoneDir = vNorm(vSub(ikTarget, newMid));
+      p[end] = vAdd(ikTarget, vScale(lowerBoneDir, L3));
+    }
+
+    // 足チェーンは床に埋まらないよう y 下限をクランプ
+    if (isLeg) {
+      const anklePos = p[tip] as Vec3;
+      const footPos  = p[end] as Vec3;
+      if (anklePos[1] < FLOOR_Y + 0.02) p[tip] = [anklePos[0], FLOOR_Y + 0.02, anklePos[2]];
+      if (footPos[1]  < FLOOR_Y)        p[end]  = [footPos[0],  FLOOR_Y,        footPos[2]];
     }
     break;
   }
@@ -222,7 +326,7 @@ export function applyChainIK(pose: Pose, draggedId: string, newPos: Vec3): Pose 
 }
 
 // ─── localStorage ─────────────────────────────────────────
-const LS_KEY = "dance-studio-v6";
+const LS_KEY = "dance-studio-v7";
 
 export function saveWork(work: Work) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(work)); } catch { /* ignore */ }
@@ -254,6 +358,8 @@ function migrateWork(w: Work) {
       c.items   = c.items   ?? [];
       c.headYaw = c.headYaw ?? 0;
       c.bodyYaw = c.bodyYaw ?? 0;
+      c.endRot  = c.endRot  ?? {};
+      c.boneRot = c.boneRot ?? {};
     }
   }
 }

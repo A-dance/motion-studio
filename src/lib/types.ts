@@ -36,12 +36,19 @@ export interface TextItem extends BaseItem {
 export type AnnotItem = ArrowItem | SpinItem | TextItem;
 
 // ─── 楽曲構造 ───────────────────────────────────────────────
+/** 手先・足先の方向オフセット（ラジアン）。[pitch, roll] */
+export type EndRot = [number, number];
+
 export interface Count {
   n:       number;
   pose:    Pose;
   items:   AnnotItem[];
   bodyYaw: number;
   headYaw: number;
+  /** 手先・足先の向き。キー: "handL" | "handR" | "footL" | "footR" */
+  endRot?: Record<string, EndRot>;
+  /** FK ボーン回転（P/Y/R 度数）。キー: 関節ID, 値: [pitchX, yawY, rollZ] */
+  boneRot?: Record<string, [number, number, number]>;
 }
 
 export interface Phrase {
@@ -60,9 +67,14 @@ export interface Work {
 export type ViewPreset = "front" | "diagonal" | "side";
 
 export interface StageAPI {
-  render(pose: Pose, opts?: { bodyYaw?: number; headYaw?: number; selectedJoint?: string | null }): void;
+  render(pose: Pose, opts?: {
+    bodyYaw?: number;
+    headYaw?: number;
+    selectedJoint?: string | null;
+    endRot?: Record<string, EndRot>;
+  }): void;
   hitTestJoint(normX: number, normY: number): string | null;
-  getDraggedPos(jointId: string, normX: number, normY: number): Vec3 | null;
+  getDraggedPos(jointId: string, normX: number, normY: number, useHorizontalPlane?: boolean): Vec3 | null;
   orbitStart(normX: number, normY: number): void;
   orbitMove(normX: number, normY: number): void;
   orbitEnd(): void;

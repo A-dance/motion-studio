@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback, useReducer } from "rea
 import {
   STAND_POSE, clonePose, makeWork, makePhrase, makeCount,
   hasContent, saveWork, loadWork, phraseLabel, applyChainIK,
+  rotateJointChildren, JOINT_LABELS,
 } from "@/lib/pose";
 import { createStage, nextHeadYaw } from "@/lib/stage";
 import {
@@ -22,6 +23,16 @@ const BODY_DIRS = [
   { label: "後", yaw: 180, preset: "front"    as ViewPreset },
 ];
 
+// 手先・足先の関節 ID セット（endRot 向き調整モード用）
+const END_JOINTS = new Set(["handL","handR","footL","footR","wristL","wristR","ankleL","ankleR"]);
+
+// P/Y/R 入力パネルを表示する関節一覧
+const BONE_ROT_JOINTS = new Set([
+  "head","neck",
+  "shldrL","shldrR","elbowL","elbowR","wristL","wristR","handL","handR",
+  "hip","hipL","hipR","kneeL","kneeR","ankleL","ankleR","footL","footR",
+]);
+
 export default function StudioApp() {
   // ── 状態 ─────────────────────────────────────────────
   const workRef      = useRef<Work>(makeWork());
@@ -35,6 +46,8 @@ export default function StudioApp() {
   const [inlinePos,      setInlinePos]      = useState({ x: 0, y: 0 });
   const [saveMsgVisible, setSaveMsgVisible] = useState(false);
   const [addFb,          setAddFb]          = useState("");
+  // 手/足の四角が「向き調整モード」かどうか（ダブルクリックで切替）
+  const [endRotJoint,    setEndRotJoint]    = useState<string | null>(null);
 
   // ── Refs ──────────────────────────────────────────────
   const viewport3dRef  = useRef<HTMLDivElement>(null);
@@ -89,7 +102,10 @@ export default function StudioApp() {
   // ── 描画 ─────────────────────────────────────────────
   function doRender() {
     const c = current();
-    stageRef.current?.render(c.pose, { bodyYaw: c.bodyYaw, headYaw: c.headYaw, selectedJoint });
+    stageRef.current?.render(c.pose, {
+      bodyYaw: c.bodyYaw, headYaw: c.headYaw,
+      selectedJoint, endRot: c.endRot,
+    });
     if (annotCanvasRef.current) drawAnnotCanvas(annotCanvasRef.current, c.items, selectedItemId);
   }
   useEffect(() => { doRender(); });
@@ -102,7 +118,7 @@ export default function StudioApp() {
   function mutate(fn: () => void) { fn(); scheduleSave(); rerender(); }
 
   // ── ポインター正規化 ─────────────────────────────────
-  function stageNorm(ev: React.PointerEvent) {
+  function stageNorm(ev: React.PointerEvent | React.MouseEvent) {
     const r = stageWrapRef.current!.getBoundingClientRect();
     return { x: (ev.clientX-r.left)/r.width, y: (ev.clientY-r.top)/r.height };
   }
@@ -133,15 +149,28 @@ export default function StudioApp() {
       return;
     }
 
-    // 2. 3D ジョイント
+    // 2. 3D ジョイント / ギズモリング / 手足の四角形
     const hitId = stageRef.current?.hitTestJoint(x, y);
     if (hitId) {
       if (hitId === "_nose") {
         mutate(() => { const c = current(); c.headYaw = nextHeadYaw(c.headYaw); });
         return;
       }
-      dragKindRef.current  = "joint";
-      dragJointRef.current = hitId;
+
+      const isShape   = hitId.endsWith("_rot");
+      const jointId   = isShape ? hitId.slice(0, -4) : hitId;
+
+      if (isShape && endRotJoint === jointId) {
+        dragKindRef.current  = "end-rot";
+        dragJointRef.current = jointId;
+      } else if (isShape) {
+        dragKindRef.current  = "joint-h";
+        dragJointRef.current = jointId;
+      } else {
+        dragKindRef.current  = "joint-v";
+        dragJointRef.current = jointId;
+      }
+
       setSelectedJoint(hitId);
       setSelectedItemId(null);
       ev.preventDefault();
@@ -156,7 +185,7 @@ export default function StudioApp() {
     stageRef.current?.orbitStart(x, y);
     (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, phraseIdx, countIdx]);
+  }, [current, phraseIdx, countIdx, endRotJoint]);
 
   // ── ポインタームーブ ─────────────────────────────────
   const onPointerMove = useCallback((ev: React.PointerEvent) => {
@@ -167,13 +196,31 @@ export default function StudioApp() {
 
     if (kind === "orbit") { stageRef.current?.orbitMove(x, y); return; }
 
+    // 向き調整ドラッグ
+    if (kind === "end-rot" && dragJointRef.current) {
+      const jointId = dragJointRef.current;
+      const c = current();
+      if (!c.endRot) c.endRot = {};
+      const cur = c.endRot[jointId] ?? [0, 0];
+      c.endRot[jointId] = [
+        Math.max(-Math.PI * 0.9, Math.min(Math.PI * 0.9, cur[0] + ev.nativeEvent.movementY * 0.018)),
+        cur[1] + ev.nativeEvent.movementX * 0.018,
+      ];
+      stageRef.current?.render(c.pose, { bodyYaw: c.bodyYaw, headYaw: c.headYaw, selectedJoint: dragJointRef.current + "_rot", endRot: c.endRot });
+      scheduleSave();
+      return;
+    }
+
     // IK ドラッグ
-    if (kind === "joint" && dragJointRef.current) {
-      const newPos = stageRef.current?.getDraggedPos(dragJointRef.current, x, y);
+    // joint-h → 水平面（形ドラッグ：前後左右）
+    // joint-v → カメラ平面（球ドラッグ：上下左右）
+    if ((kind === "joint-h" || kind === "joint-v") && dragJointRef.current) {
+      const useH   = kind === "joint-h";
+      const newPos = stageRef.current?.getDraggedPos(dragJointRef.current, x, y, useH);
       if (newPos) {
-        const c       = current();
-        c.pose        = applyChainIK(c.pose, dragJointRef.current, newPos);
-        stageRef.current?.render(c.pose, { bodyYaw: c.bodyYaw, headYaw: c.headYaw, selectedJoint: dragJointRef.current });
+        const c  = current();
+        c.pose   = applyChainIK(c.pose, dragJointRef.current, newPos);
+        stageRef.current?.render(c.pose, { bodyYaw: c.bodyYaw, headYaw: c.headYaw, selectedJoint: dragJointRef.current, endRot: c.endRot });
         scheduleSave();
       }
       return;
@@ -200,14 +247,16 @@ export default function StudioApp() {
     dragJointRef.current  = null;
     dragItemIdRef.current = null;
     try { (ev.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId); } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── ダブルクリック（テキスト編集） ───────────────────
+  // ── ダブルクリック ────────────────────────────────────
   const onDblClick = useCallback((ev: React.MouseEvent) => {
     const canvas = annotCanvasRef.current;
     if (!canvas) return;
-    const r = stageWrapRef.current!.getBoundingClientRect();
-    const x = (ev.clientX-r.left)/r.width, y = (ev.clientY-r.top)/r.height;
+    const { x, y } = stageNorm(ev);
+
+    // テキストアイテムの編集
     const hit = hitTestItems(current().items, x, y, canvas);
     if (hit?.item.type === "text") {
       ev.preventDefault();
@@ -215,6 +264,17 @@ export default function StudioApp() {
       setEditItemId(hit.item.id);
       setInlinePos({ x: ev.clientX, y: ev.clientY });
       setTimeout(() => { inlineInputRef.current?.focus(); inlineInputRef.current?.select(); }, 0);
+      return;
+    }
+
+    // 手/足の四角形ダブルクリック → 向き調整モード切替
+    const hitId = stageRef.current?.hitTestJoint(x, y);
+    if (hitId?.endsWith("_rot")) {
+      const jointId = hitId.slice(0, -4);
+      if (END_JOINTS.has(jointId)) {
+        setEndRotJoint(prev => prev === jointId ? null : jointId);
+        ev.preventDefault();
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
@@ -244,7 +304,7 @@ export default function StudioApp() {
       if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
         ev.preventDefault();
         const delta = ev.key === "ArrowRight" ? 1 : -1;
-        setSelectedItemId(null); setSelectedJoint(null);
+        setSelectedItemId(null); setSelectedJoint(null); setEndRotJoint(null);
         setCountIdx(ci => Math.max(0, Math.min(COUNTS-1, ci+delta)));
       }
       if ((ev.key === "Delete" || ev.key === "Backspace") && selectedItemId) {
@@ -258,7 +318,13 @@ export default function StudioApp() {
 
   // ── ポーズ操作 ────────────────────────────────────────
   function resetPose() {
-    mutate(() => { const c = current(); c.pose = clonePose(STAND_POSE); c.bodyYaw = 0; c.headYaw = 0; });
+    mutate(() => {
+      const c = current();
+      c.pose = clonePose(STAND_POSE);
+      c.bodyYaw = 0; c.headYaw = 0;
+      c.endRot = {}; c.boneRot = {};
+    });
+    setEndRotJoint(null);
   }
 
   function applyBodyDir(dir: typeof BODY_DIRS[number]) {
@@ -274,9 +340,42 @@ export default function StudioApp() {
       dst.pose     = clonePose(src.pose);
       dst.bodyYaw  = src.bodyYaw;
       dst.headYaw  = src.headYaw;
+      dst.endRot   = src.endRot  ? { ...src.endRot  } : {};
+      dst.boneRot  = src.boneRot ? { ...src.boneRot } : {};
     });
     setCountIdx(ci => ci+1);
-    setSelectedItemId(null); setSelectedJoint(null);
+    setSelectedItemId(null); setSelectedJoint(null); setEndRotJoint(null);
+  }
+
+  // ── FK ボーン回転 ─────────────────────────────────────
+  /**
+   * 選択中の関節に P/Y/R の新しい絶対角度（度）を適用する。
+   * 内部では「前回との差分（delta）」を子孫関節に FK で伝播する。
+   */
+  function applyBoneRot(jointId: string, axis: "x" | "y" | "z", newDeg: number) {
+    mutate(() => {
+      const c = current();
+      if (!c.boneRot) c.boneRot = {};
+      const [p, y, r] = c.boneRot[jointId] ?? [0, 0, 0];
+      let deltaDeg: number;
+      let next: [number, number, number];
+      if (axis === "x") { deltaDeg = newDeg - p; next = [newDeg, y, r]; }
+      else if (axis === "y") { deltaDeg = newDeg - y; next = [p, newDeg, r]; }
+      else { deltaDeg = newDeg - r; next = [p, y, newDeg]; }
+
+      if (Math.abs(deltaDeg) > 0.001) {
+        c.pose = rotateJointChildren(c.pose, jointId, axis, deltaDeg);
+      }
+      c.boneRot[jointId] = next;
+    });
+  }
+
+  /** 選択関節の boneRot カウンターをゼロに戻す（ポーズ位置は変えない） */
+  function resetBoneRot(jointId: string) {
+    mutate(() => {
+      const c = current();
+      if (c.boneRot) delete c.boneRot[jointId];
+    });
   }
 
   // ── アイテム追加 ──────────────────────────────────────
@@ -299,7 +398,7 @@ export default function StudioApp() {
   function addPhrase() {
     mutate(() => { workRef.current.phrases.push(makePhrase(workRef.current.phrases.length)); });
     setPhraseIdx(workRef.current.phrases.length-1);
-    setCountIdx(0); setSelectedItemId(null); setSelectedJoint(null);
+    setCountIdx(0); setSelectedItemId(null); setSelectedJoint(null); setEndRotJoint(null);
   }
   function deletePhrase(pi: number) {
     if (!confirm(`フレーズ ${workRef.current.phrases[pi].label} を削除しますか？`)) return;
@@ -308,7 +407,7 @@ export default function StudioApp() {
   }
   function navigateTo(pi: number, ci: number) {
     setPhraseIdx(pi); setCountIdx(ci);
-    setSelectedItemId(null); setSelectedJoint(null);
+    setSelectedItemId(null); setSelectedJoint(null); setEndRotJoint(null);
   }
 
   // ── 作品名 / 保存 ────────────────────────────────────
@@ -320,7 +419,7 @@ export default function StudioApp() {
   function handleNew() {
     if (!confirm("現在の内容を破棄して新しい作品を始めますか？")) return;
     workRef.current = makeWork();
-    setPhraseIdx(0); setCountIdx(0); setSelectedItemId(null); setSelectedJoint(null);
+    setPhraseIdx(0); setCountIdx(0); setSelectedItemId(null); setSelectedJoint(null); setEndRotJoint(null);
     rerender();
   }
 
@@ -331,6 +430,12 @@ export default function StudioApp() {
   const isSpin    = selItem?.type === "spin";
   const hasArrow  = isArrow || isSpin;
   const curPhrase = workRef.current.phrases[phraseIdx];
+
+  // 関節編集パネル用（_rot サフィックスを除去して実 ID を得る）
+  const editJointId  = selectedJoint
+    ? selectedJoint.replace(/_rot$/, "")
+    : null;
+  const showBoneEdit = editJointId !== null && BONE_ROT_JOINTS.has(editJointId);
 
   // ── JSX ──────────────────────────────────────────────
   return (
@@ -352,13 +457,21 @@ export default function StudioApp() {
 
       <main className={s.main}>
 
-        {/* 3D ステージ（最大化） */}
+        {/* 3D ステージ */}
         <section className={s.panelStage}>
           <div className={s.stageTopBar}>
             <span className={s.countBadge}>{curPhrase.label} – {countIdx+1}</span>
-            <span className={s.stageHint}>
-              関節ドラッグ: IK ポーズ &nbsp;·&nbsp; 🔴 鼻クリック: 頭向き &nbsp;·&nbsp; 背景ドラッグ: 視点回転
-            </span>
+            {endRotJoint && (
+              <span className={s.rotModeTag}>
+                🔄 {endRotJoint} 向き調整中 — もう一度ダブルクリックで解除
+              </span>
+            )}
+            {!endRotJoint && (
+              <span className={s.stageHint}>
+                球ドラッグ: 上下左右 &nbsp;·&nbsp; 形ドラッグ: 前後左右 &nbsp;·&nbsp;
+                形ダブルクリック: 向き調整 &nbsp;·&nbsp; 🔴 鼻: 頭向き
+              </span>
+            )}
           </div>
           <div className={s.stageWrap} ref={stageWrapRef}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove}
@@ -370,12 +483,12 @@ export default function StudioApp() {
           </div>
           <p className={s.stageFoot}>
             <kbd>←</kbd><kbd>→</kbd> カウント移動 &nbsp;·&nbsp;
-            文字を<strong>ダブルクリック</strong>で編集 &nbsp;·&nbsp;
+            テキストを<strong>ダブルクリック</strong>で編集 &nbsp;·&nbsp;
             <kbd>Delete</kbd> 削除
           </p>
         </section>
 
-        {/* 右パネル（コンパクト） */}
+        {/* 右パネル */}
         <section className={s.panelCtrl}>
 
           {/* フレーズ / カウント */}
@@ -416,7 +529,6 @@ export default function StudioApp() {
                 <button className={s.btnXs} onClick={copyCountForward}>次→</button>
               </span>
             </div>
-            {/* 向き（プリセットボタンのみ、スライダーなし） */}
             <div className={s.dirRow}>
               {BODY_DIRS.map((d) => (
                 <button key={d.label} className={`${s.btnDir}${c.bodyYaw === d.yaw ? " "+s.activDir : ""}`}
@@ -427,6 +539,51 @@ export default function StudioApp() {
             </div>
             <p className={s.dirHint}>🔴 鼻クリックで頭の向きを切替</p>
           </div>
+
+          {/* 関節調整（関節選択時のみ） */}
+          {showBoneEdit && editJointId && (() => {
+            const br = c.boneRot?.[editJointId] ?? [0, 0, 0];
+            const axes: { label: string; axis: "x"|"y"|"z"; idx: 0|1|2 }[] = [
+              { label: "P", axis: "x", idx: 0 },
+              { label: "Y", axis: "y", idx: 1 },
+              { label: "R", axis: "z", idx: 2 },
+            ];
+            return (
+              <div className={s.cb}>
+                <div className={s.cbHead}>
+                  <span className={s.cbTitle}>
+                    🦴 {JOINT_LABELS[editJointId] ?? editJointId}
+                  </span>
+                  <button className={s.btnXs}
+                    title="このカウンターをリセット（ポーズは変えない）"
+                    onClick={() => resetBoneRot(editJointId)}>0
+                  </button>
+                </div>
+                <div className={s.pyrRow}>
+                  {axes.map(({ label, axis, idx }) => (
+                    <div key={axis} className={s.pyrCell}>
+                      <span className={s.pyrLabel}>{label}</span>
+                      <input
+                        type="number"
+                        step="1"
+                        min={-180}
+                        max={180}
+                        className={s.pyrInput}
+                        key={`${phraseIdx}-${countIdx}-${editJointId}-${axis}`}
+                        defaultValue={Math.round(br[idx])}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v)) applyBoneRot(editJointId, axis, v);
+                        }}
+                      />
+                      <span className={s.pyrDeg}>°</span>
+                    </div>
+                  ))}
+                </div>
+                <p className={s.pyrHint}>子関節が連動します</p>
+              </div>
+            );
+          })()}
 
           {/* アイテム追加 */}
           <div className={s.cb}>
@@ -443,18 +600,15 @@ export default function StudioApp() {
                 <svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 0 7 4" stroke="#4888b8" strokeWidth="2.6" strokeLinecap="round" fill="none"/><polygon points="19,8 15,4 23,6" fill="#4888b8"/></svg>
                 回転
               </button>
-              <button className={s.btnAdd} title="文字メモ" onClick={() => {
-                const text = (document.getElementById("fieldMotion") as HTMLInputElement)?.value.trim() || "メモ";
-                addItem("text", { text }, `「${text}」追加`);
-              }}>
+              <button className={s.btnAdd} title="文字メモ（ダブルクリックで編集）"
+                onClick={() => addItem("text", { text: "メモ" }, "テキスト追加")}>
                 <svg viewBox="0 0 24 24"><text x="5" y="18" fontFamily="sans-serif" fontSize="15" fontWeight="700" fill="#be8898">T</text></svg>
                 文字
               </button>
-              <input id="fieldMotion" className={s.fieldMini} placeholder="文字…" />
             </div>
           </div>
 
-          {/* 矢印調整（選択時のみ） */}
+          {/* 矢印調整 */}
           {hasArrow && (
             <div className={s.cb}>
               <div className={s.cbHead}>
