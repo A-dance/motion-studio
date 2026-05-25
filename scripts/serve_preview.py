@@ -73,6 +73,16 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path in ("", "/"):
+            self.send_response(302)
+            self.send_header("Location", "/web/")
+            self.end_headers()
+            return
+        if parsed.path == "/web":
+            self.send_response(302)
+            self.send_header("Location", "/web/")
+            self.end_headers()
+            return
         if parsed.path == "/api/poses-at-time":
             self.handle_poses_at_time(parse_qs(parsed.query))
             return

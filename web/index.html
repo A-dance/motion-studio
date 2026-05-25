@@ -7,156 +7,204 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      "three": "/web/vendor/three/three.module.js"
     }
   }
   </script>
   <link rel="stylesheet" href="/web/css/studio.css" />
 </head>
 <body>
-  <div class="app">
+<div class="app">
 
-    <!-- ヘッダー -->
-    <header class="header">
-      <h1 class="brand-title">Dance <span>Sequence</span> Note</h1>
-      <div class="work-controls">
-        <input type="text" id="workName" class="work-name-input"
-          placeholder="作品名…" autocomplete="off" spellcheck="false" />
-        <button type="button" id="btnSaveWork" class="btn-hd">💾</button>
-        <button type="button" id="btnNewWork"  class="btn-hd">＋</button>
+  <!-- ═══ 左ツールバー ═══════════════════════════════════ -->
+  <aside class="toolbar">
+    <div class="toolbar-brand">
+      <span class="brand-d">D</span>
+    </div>
+
+    <button class="tool-btn is-active" data-tool="select" title="選択・ポーズ編集">
+      <svg viewBox="0 0 20 20" fill="none">
+        <path d="M4 2 L4 16 L8 12 L11 18 L13 17 L10 11 L15 11 Z" fill="currentColor"/>
+      </svg>
+      <span>矢印</span>
+    </button>
+
+    <button class="tool-btn" data-tool="orbit" title="視点を回す">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">
+        <circle cx="10" cy="10" r="7"/>
+        <line x1="10" y1="3" x2="10" y2="17"/>
+        <line x1="3" y1="10" x2="17" y2="10"/>
+      </svg>
+      <span>移動</span>
+    </button>
+
+    <div class="toolbar-sep"></div>
+
+    <button class="tool-btn" data-tool="arrow" title="矢印アノテーションを追加" id="btnAddStraightArrow">
+      <svg viewBox="0 0 20 20" fill="none">
+        <line x1="4" y1="16" x2="16" y2="5" stroke="#ffbf00" stroke-width="2.2" stroke-linecap="round"/>
+        <polygon points="16,5 9,6 14,11" fill="#ffbf00"/>
+      </svg>
+      <span>矢印</span>
+    </button>
+
+    <button class="tool-btn" data-tool="spin" title="回転矢印を追加" id="btnAddSpinArrow">
+      <svg viewBox="0 0 20 20" fill="none">
+        <path d="M10 3 a7 7 0 1 0 6 3.5" stroke="#4888b8" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <polygon points="16,6.5 12,3 17,2" fill="#4888b8"/>
+      </svg>
+      <span>円弧</span>
+    </button>
+
+    <button class="tool-btn" data-tool="text" title="文字メモを追加" id="btnAddText">
+      <svg viewBox="0 0 20 20" fill="none">
+        <text x="3" y="16" font-family="sans-serif" font-size="14" font-weight="700" fill="currentColor">T</text>
+      </svg>
+      <span>文字</span>
+    </button>
+
+    <div class="toolbar-spacer"></div>
+
+    <!-- 文字入力フィールド（テキストツール選択時に展開） -->
+    <div class="toolbar-text-field hidden" id="toolTextFieldWrap">
+      <input type="text" id="fieldMotion" placeholder="文字…" class="toolbar-text-input" />
+    </div>
+  </aside>
+
+  <!-- ═══ センター: ステージ + トランスポート ════════════ -->
+  <div class="center-col">
+
+    <!-- 3D ステージ ---------------------------------------- -->
+    <div class="stage-wrap" id="stageWrap">
+      <div id="viewport3d"></div>
+      <canvas id="annotCanvas" aria-label="矢印・文字レイヤー"></canvas>
+
+      <!-- カウント表示（右上・最小限） -->
+      <div class="stage-status">
+        <div class="ss-count">Count: <strong id="currentCountLabel">A – 1</strong></div>
       </div>
-    </header>
+    </div>
 
-    <main class="main">
+    <!-- トランスポートバー ------------------------------------- -->
+    <div class="transport-bar">
+      <div class="transport-nav">
+        <button class="tb-btn" id="btnFirst"  title="最初のカウントへ">|◀</button>
+        <button class="tb-btn" id="btnStop"   title="停止">■</button>
+        <button class="tb-btn" id="btnPlay"   title="自動再生">▶</button>
+        <button class="tb-btn" id="btnNext"   title="次のカウントへ">▶|</button>
+        <button class="tb-btn" id="btnLast"   title="最後のカウントへ">▶▶|</button>
+        <span class="tb-sep"></span>
+        <button class="tb-btn tb-btn--accent" id="btnActi" title="現在のポーズをアクションとしてコピー">Acti</button>
+        <button class="tb-btn" id="btnCopyCount" title="次のカウントにポーズをコピー">→</button>
+      </div>
 
-      <!-- ── 左: 3Dステージ + アノテーションオーバーレイ ── -->
-      <section class="panel panel-stage">
-        <div class="stage-topbar">
-          <span class="count-badge" id="currentCountLabel">A – 1</span>
-          <span class="stage-hint-inline" id="stageHintInline">関節クリック → ギズモ表示 · リングドラッグ: 回転 · 背景ドラッグ: 視点</span>
-        </div>
-        <!-- Three.js + 2D アノテーション -->
-        <div class="stage-wrap" id="stageWrap">
-          <div id="viewport3d"></div>
-          <canvas id="annotCanvas" aria-label="矢印・文字レイヤー"></canvas>
-        </div>
-        <p class="stage-foot">
-          <kbd>←</kbd><kbd>→</kbd> カウント移動 &nbsp;·&nbsp;
-          文字は <strong>ダブルクリック</strong> で直接編集 &nbsp;·&nbsp;
-          <kbd>Delete</kbd> で削除
-        </p>
-      </section>
+      <!-- フレーズ + カウントチップ（スクロール可能） -->
+      <div id="phraseTimeline" class="phrase-timeline"></div>
 
-      <!-- ── 右: コントロール（スクロールなし・コンパクト） ── -->
-      <section class="panel panel-ctrl">
+      <div class="transport-right">
+        <!-- 体の向き（ミニスライダー） -->
+        <input type="range" id="bodyYaw" min="0" max="359" value="0"
+               title="体の向き" class="body-yaw-range" />
+        <span class="tr-sep"></span>
+        <button class="tb-icon-btn" data-view="front" title="正面">⊙</button>
+        <button class="tb-icon-btn" data-view="diag"  title="斜め">↗</button>
+        <button class="tb-icon-btn" data-view="side"  title="横">→</button>
+      </div>
+    </div>
 
-        <!-- ① フレーズ / カウント -->
-        <div class="cb">
-          <div class="cb-head">
-            <span class="cb-title">フレーズ</span>
-            <button type="button" id="btnAddPhrase" class="btn-xs-link">＋追加</button>
-          </div>
-          <div id="phraseTimeline" class="phrase-timeline"></div>
-        </div>
+    <!-- 保存フィードバック（最小限） -->
+    <div class="hint-bar hint-bar--min">
+      <span class="save-hint" id="saveHint"></span>
+    </div>
 
-        <!-- ② ポーズ -->
-        <div class="cb">
-          <div class="cb-head">
-            <span class="cb-title">ポーズ</span>
-            <span class="cb-btns">
-              <button type="button" data-preset="reset" class="btn-xs">リセット</button>
-              <button type="button" id="btnCopyCount"  class="btn-xs">次へ →</button>
-            </span>
-          </div>
-          <!-- 選択ボーン表示 -->
-          <p id="selectedBoneLbl" class="bone-sel-hint">関節をクリックして選択</p>
-          <div class="sp">
-            <label>向き <span id="bodyYawLbl">0°</span></label>
-            <input type="range" id="bodyYaw" min="0" max="359" value="0" />
-          </div>
-          <div class="sp">
-            <label>頭  <span id="headYawLbl">0°</span></label>
-            <input type="range" id="headYaw" min="-90" max="90" value="0" />
-          </div>
-          <div class="view-presets">
-            <button class="btn-view" data-view="front">正面</button>
-            <button class="btn-view" data-view="diag">斜め</button>
-            <button class="btn-view" data-view="side">横</button>
-          </div>
-          <!-- ボーンスケール（腕・脚の長さ） -->
-          <div class="sp">
-            <label>腕の長さ <span id="armScaleLbl">×1.00</span></label>
-            <input type="range" id="armScale" min="0.5" max="2.0" step="0.05" value="1" />
-          </div>
-          <div class="sp">
-            <label>脚の長さ <span id="legScaleLbl">×1.00</span></label>
-            <input type="range" id="legScale" min="0.5" max="2.0" step="0.05" value="1" />
-          </div>
-        </div>
+  </div><!-- /center-col -->
 
-        <!-- ③ 追加ツールバー -->
-        <div class="cb">
-          <div class="cb-head">
-            <span class="cb-title">追加</span>
-            <span class="add-fb" id="addFeedback" aria-live="polite"></span>
-          </div>
-          <div class="add-toolbar">
-            <button type="button" class="btn-add" id="btnAddStraightArrow" title="進む矢印">
-              <svg viewBox="0 0 24 24" fill="none">
-                <line x1="5" y1="19" x2="19" y2="8" stroke="#c8a038" stroke-width="2.8" stroke-linecap="round"/>
-                <polygon points="19,8 12,8 19,15" fill="#c8a038"/>
-              </svg>
-              矢印
-            </button>
-            <button type="button" class="btn-add" id="btnAddSpinArrow" title="回転の矢印">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path d="M12 4a8 8 0 1 0 7 4" stroke="#4888b8" stroke-width="2.6" stroke-linecap="round" fill="none"/>
-                <polygon points="19,8 15,4 23,6" fill="#4888b8"/>
-              </svg>
-              回転
-            </button>
-            <button type="button" class="btn-add" id="btnAddText" title="文字メモ">
-              <svg viewBox="0 0 24 24" fill="none">
-                <text x="5" y="18" font-family="sans-serif" font-size="15" font-weight="700" fill="#be8898">T</text>
-              </svg>
-              文字
-            </button>
-            <input type="text" id="fieldMotion" class="field-mini" placeholder="文字内容…" />
-          </div>
-        </div>
+  <!-- ═══ 右パネル ══════════════════════════════════════ -->
+  <aside class="right-panel">
 
-        <!-- ④ 矢印の調整（選択時のみ表示） -->
-        <div id="itemControls" class="cb item-ctrl--idle">
-          <div class="cb-head">
-            <span class="cb-title" id="itemCtrlTitle">矢印の調整</span>
-            <button type="button" id="btnDeleteItem" class="btn-del" disabled>🗑 削除</button>
-          </div>
-          <div class="arrow-sliders">
-            <div class="sp"><label>角度 <span id="dirAngleLbl">90°</span></label>
-              <input type="range" id="dirAngle" min="0" max="359" value="90" /></div>
-            <div class="sp"><label>大きさ <span id="dirPowerLbl">45%</span></label>
-              <input type="range" id="dirPower" min="15" max="100" value="45" /></div>
-            <div class="sp" id="bendRow"><label>曲がり <span id="dirBendLbl">0</span></label>
-              <input type="range" id="dirBend" min="-100" max="100" value="0" /></div>
-            <div class="sp" id="tiltRow"><label>傾き <span id="dirTiltLbl">0°</span></label>
-              <input type="range" id="dirTilt" min="0" max="359" value="0" /></div>
-          </div>
-        </div>
+    <!-- 矢印の調整（アイテム選択時のみ表示） -->
+    <div id="itemControls" class="item-ctrl--idle rp-section">
+      <div class="rp-title" id="itemCtrlTitle">矢印の調整</div>
+      <div class="sp">
+        <label>角度 <span id="dirAngleLbl">90°</span></label>
+        <input type="range" id="dirAngle" min="0" max="359" value="90" />
+      </div>
+      <div class="sp">
+        <label>大きさ <span id="dirPowerLbl">45%</span></label>
+        <input type="range" id="dirPower" min="15" max="100" value="45" />
+      </div>
+      <div class="sp" id="bendRow">
+        <label>曲がり <span id="dirBendLbl">0</span></label>
+        <input type="range" id="dirBend" min="-100" max="100" value="0" />
+      </div>
+      <div class="sp" id="tiltRow">
+        <label>傾き <span id="dirTiltLbl">0°</span></label>
+        <input type="range" id="dirTilt" min="0" max="359" value="0" />
+      </div>
+      <div class="rp-row rp-row--end">
+        <button id="btnDeleteItem" class="btn-del" disabled>🗑 削除</button>
+        <span class="add-fb" id="addFeedback"></span>
+      </div>
+    </div>
 
-        <!-- フッター -->
-        <div class="cb-foot">
-          <p class="save-hint" id="saveHint"></p>
-        </div>
+    <!-- ポーズ操作 -->
+    <div class="rp-section" id="poseEditSection">
+      <div class="rp-title">ポーズ操作</div>
+      <div class="pose-action-btns">
+        <button type="button" id="btnResetPose" class="rf-btn pose-action-btn" title="立ち姿に戻す">↺ リセット</button>
+        <button type="button" id="btnUndoPose" class="rf-btn pose-action-btn" title="1つ前のポーズに戻す" disabled>← 戻る</button>
+      </div>
+    </div>
 
-      </section>
-    </main>
-  </div>
+    <!-- カウント参照 + メモ -->
+    <div class="rp-section" id="countRefSection">
+      <div class="rp-title">カウント参照</div>
+      <label class="rp-sublabel" for="countMemo">このカウントのメモ</label>
+      <textarea id="countMemo" class="count-memo-input" rows="2"
+                placeholder="例: ここで右に体重移動"></textarea>
+      <div class="rp-sublabel rp-sublabel--spaced">他カウントからポーズを適用</div>
+      <div id="countRefList" class="count-ref-list"></div>
+    </div>
 
-  <!-- インライン文字編集（position:fixed オーバーレイ） -->
-  <div id="inlineEdit" class="inline-edit hidden">
-    <input type="text" id="inlineEditInput" class="inline-edit-input" />
-  </div>
+    <!-- 保存ポーズライブラリ -->
+    <div class="rp-section" id="poseLibrarySection">
+      <div class="rp-title">保存ポーズ</div>
+      <p class="rp-hint">名前を付けて保存 → ワンクリックで現在のカウントに適用</p>
+      <div class="rp-pose-save">
+        <input type="text" id="poseNameInput" class="rp-work-name"
+               placeholder="ポーズ名…" autocomplete="off" />
+        <button id="btnSavePose" class="rf-btn rf-btn--gold" title="現在のポーズを保存">保存</button>
+      </div>
+      <div id="poseLibraryList" class="pose-library-list"></div>
+    </div>
 
-  <script type="module" src="/web/js/app.js"></script>
+    <!-- 余白 -->
+    <div class="rp-spacer"></div>
+
+    <!-- フッター: 作品管理 + タブ -->
+    <div class="rp-footer">
+      <div class="rp-tabs">
+        <button class="rtab is-active">FILE</button>
+        <button class="rtab">VIEW</button>
+      </div>
+      <input type="text" id="workName" class="rp-work-name"
+             placeholder="workName" autocomplete="off" spellcheck="false" />
+      <div class="rp-footer-btns">
+        <button id="btnSaveWork" class="rf-btn" title="保存">💾</button>
+        <button id="btnNewWork"  class="rf-btn" title="新しい作品">＋</button>
+        <button id="btnAddPhrase" class="rf-btn" title="フレーズ追加">⊕</button>
+      </div>
+    </div>
+
+  </aside>
+
+</div><!-- /app -->
+
+<!-- インライン文字編集（fixed オーバーレイ） -->
+<div id="inlineEdit" class="inline-edit hidden">
+  <input type="text" id="inlineEditInput" class="inline-edit-input" />
+</div>
+
+<script type="module" src="/web/js/app.js"></script>
 </body>
 </html>
