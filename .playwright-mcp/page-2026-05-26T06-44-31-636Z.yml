@@ -1,0 +1,183 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e5]: D
+    - button "選択" [ref=e6] [cursor=pointer]:
+      - img [ref=e7]
+      - generic [ref=e9]: 選択
+    - button "移動" [ref=e10] [cursor=pointer]:
+      - img [ref=e11]
+      - generic [ref=e13]: 移動
+    - button "矢印" [ref=e15] [cursor=pointer]:
+      - img [ref=e16]
+      - generic [ref=e19]: 矢印
+    - button "円弧" [ref=e20] [cursor=pointer]:
+      - img [ref=e21]
+      - generic [ref=e24]: 円弧
+    - button "文字" [ref=e25] [cursor=pointer]:
+      - img [ref=e26]:
+        - generic [ref=e27]: T
+      - generic [ref=e28]: 文字
+  - generic [ref=e29]:
+    - generic [ref=e30]:
+      - generic "矢印・文字レイヤー"
+      - generic:
+        - generic:
+          - text: "Count:"
+          - strong: Verse – 1
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - button "|◀" [ref=e34] [cursor=pointer]
+        - button "■" [ref=e35] [cursor=pointer]
+        - button "▶" [ref=e36] [cursor=pointer]
+        - button "▶|" [ref=e37] [cursor=pointer]
+        - button "▶▶|" [ref=e38] [cursor=pointer]
+        - button "次→" [ref=e40] [cursor=pointer]
+      - generic [ref=e83]:
+        - textbox [active] [ref=e84]: Verse
+        - generic [ref=e85]:
+          - button "1" [ref=e86] [cursor=pointer]
+          - button "2" [ref=e87] [cursor=pointer]
+          - button "3" [ref=e88] [cursor=pointer]
+          - button "4" [ref=e89] [cursor=pointer]
+          - button "5" [ref=e90] [cursor=pointer]
+          - button "6" [ref=e91] [cursor=pointer]
+          - button "7" [ref=e92] [cursor=pointer]
+          - button "8" [ref=e93] [cursor=pointer]
+          - button "9" [ref=e95] [cursor=pointer]
+          - button "10" [ref=e96] [cursor=pointer]
+          - button "11" [ref=e97] [cursor=pointer]
+          - button "12" [ref=e98] [cursor=pointer]
+          - button "13" [ref=e99] [cursor=pointer]
+          - button "14" [ref=e100] [cursor=pointer]
+          - button "15" [ref=e101] [cursor=pointer]
+          - button "16" [ref=e102] [cursor=pointer]
+      - generic [ref=e42]:
+        - generic "再生速度（BPM）" [ref=e43]:
+          - text: BPM
+          - spinbutton "BPM" [ref=e44]: "109"
+        - slider "体の向き" [ref=e46] [cursor=pointer]: "0"
+        - button "⊙" [ref=e48] [cursor=pointer]
+        - button "↗" [ref=e49] [cursor=pointer]
+        - button "→" [ref=e50] [cursor=pointer]
+    - button "?" [ref=e52] [cursor=pointer]
+  - complementary [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]: ポーズ操作
+      - generic [ref=e56]:
+        - button "↺ リセット" [ref=e57] [cursor=pointer]
+        - button "← 戻る" [disabled] [ref=e58]
+    - generic [ref=e59]:
+      - generic [ref=e60]: カウント参照
+      - generic [ref=e61]: このカウントのメモ
+      - textbox "このカウントのメモ" [ref=e62]:
+        - /placeholder: "例: ここで右に体重移動"
+      - generic [ref=e63]: 他カウントからポーズを適用
+      - generic [ref=e103]:
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - generic [ref=e106]: Verse-2
+            - generic [ref=e107]: ポーズあり
+          - button "参照" [ref=e108] [cursor=pointer]
+          - button "適用" [ref=e109] [cursor=pointer]
+        - generic [ref=e110]:
+          - generic [ref=e111]:
+            - generic [ref=e112]: Verse-3
+            - generic [ref=e113]: ポーズあり
+          - button "参照" [ref=e114] [cursor=pointer]
+          - button "適用" [ref=e115] [cursor=pointer]
+        - generic [ref=e116]:
+          - generic [ref=e117]:
+            - generic [ref=e118]: Verse-4
+            - generic [ref=e119]: ポーズあり
+          - button "参照" [ref=e120] [cursor=pointer]
+          - button "適用" [ref=e121] [cursor=pointer]
+        - generic [ref=e122]:
+          - generic [ref=e123]:
+            - generic [ref=e124]: Verse-5
+            - generic [ref=e125]: ポーズあり
+          - button "参照" [ref=e126] [cursor=pointer]
+          - button "適用" [ref=e127] [cursor=pointer]
+        - generic [ref=e128]:
+          - generic [ref=e129]:
+            - generic [ref=e130]: Verse-6
+            - generic [ref=e131]: ポーズあり
+          - button "参照" [ref=e132] [cursor=pointer]
+          - button "適用" [ref=e133] [cursor=pointer]
+        - generic [ref=e134]:
+          - generic [ref=e135]:
+            - generic [ref=e136]: Verse-7
+            - generic [ref=e137]: ポーズあり
+          - button "参照" [ref=e138] [cursor=pointer]
+          - button "適用" [ref=e139] [cursor=pointer]
+        - generic [ref=e140]:
+          - generic [ref=e141]:
+            - generic [ref=e142]: Verse-8
+            - generic [ref=e143]: ポーズあり
+          - button "参照" [ref=e144] [cursor=pointer]
+          - button "適用" [ref=e145] [cursor=pointer]
+        - generic [ref=e146]:
+          - generic [ref=e147]:
+            - generic [ref=e148]: Verse-9
+            - generic [ref=e149]: ポーズあり
+          - button "参照" [ref=e150] [cursor=pointer]
+          - button "適用" [ref=e151] [cursor=pointer]
+        - generic [ref=e152]:
+          - generic [ref=e153]:
+            - generic [ref=e154]: Verse-10
+            - generic [ref=e155]: ポーズあり
+          - button "参照" [ref=e156] [cursor=pointer]
+          - button "適用" [ref=e157] [cursor=pointer]
+        - generic [ref=e158]:
+          - generic [ref=e159]:
+            - generic [ref=e160]: Verse-11
+            - generic [ref=e161]: ポーズあり
+          - button "参照" [ref=e162] [cursor=pointer]
+          - button "適用" [ref=e163] [cursor=pointer]
+        - generic [ref=e164]:
+          - generic [ref=e165]:
+            - generic [ref=e166]: Verse-12
+            - generic [ref=e167]: ポーズあり
+          - button "参照" [ref=e168] [cursor=pointer]
+          - button "適用" [ref=e169] [cursor=pointer]
+        - generic [ref=e170]:
+          - generic [ref=e171]:
+            - generic [ref=e172]: Verse-13
+            - generic [ref=e173]: ポーズあり
+          - button "参照" [ref=e174] [cursor=pointer]
+          - button "適用" [ref=e175] [cursor=pointer]
+        - generic [ref=e176]:
+          - generic [ref=e177]:
+            - generic [ref=e178]: Verse-14
+            - generic [ref=e179]: ポーズあり
+          - button "参照" [ref=e180] [cursor=pointer]
+          - button "適用" [ref=e181] [cursor=pointer]
+        - generic [ref=e182]:
+          - generic [ref=e183]:
+            - generic [ref=e184]: Verse-15
+            - generic [ref=e185]: ポーズあり
+          - button "参照" [ref=e186] [cursor=pointer]
+          - button "適用" [ref=e187] [cursor=pointer]
+        - generic [ref=e188]:
+          - generic [ref=e189]:
+            - generic [ref=e190]: Verse-16
+            - generic [ref=e191]: ポーズあり
+          - button "参照" [ref=e192] [cursor=pointer]
+          - button "適用" [ref=e193] [cursor=pointer]
+    - generic [ref=e64]:
+      - generic [ref=e65]: 保存ポーズ
+      - paragraph [ref=e66]: 名前を付けて保存 → ワンクリックで現在のカウントに適用
+      - generic [ref=e67]:
+        - textbox "ポーズ名…" [ref=e68]
+        - button "保存" [ref=e69] [cursor=pointer]
+      - generic [ref=e195]: ポーズを保存すると参照できます
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - button "FILE" [ref=e73] [cursor=pointer]
+        - button "VIEW" [ref=e74] [cursor=pointer]
+      - textbox "workName" [ref=e75]
+      - generic [ref=e76]:
+        - button "💾" [ref=e77] [cursor=pointer]
+        - button "＋" [ref=e78] [cursor=pointer]
+        - button "⊕" [ref=e79] [cursor=pointer]
+        - button "↑" [ref=e80] [cursor=pointer]
+        - button "↓" [ref=e81] [cursor=pointer]

@@ -1,0 +1,183 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e5]: D
+    - button "選択" [ref=e6] [cursor=pointer]:
+      - img [ref=e7]
+      - generic [ref=e9]: 選択
+    - button "移動" [ref=e10] [cursor=pointer]:
+      - img [ref=e11]
+      - generic [ref=e13]: 移動
+    - button "矢印" [ref=e15] [cursor=pointer]:
+      - img [ref=e16]
+      - generic [ref=e19]: 矢印
+    - button "円弧" [ref=e20] [cursor=pointer]:
+      - img [ref=e21]
+      - generic [ref=e24]: 円弧
+    - button "文字" [ref=e25] [cursor=pointer]:
+      - img [ref=e26]:
+        - generic [ref=e27]: T
+      - generic [ref=e28]: 文字
+  - generic [ref=e29]:
+    - generic [ref=e30]:
+      - generic "矢印・文字レイヤー"
+      - generic:
+        - generic:
+          - text: "Count:"
+          - strong: Chorus – 1
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - button "|◀" [ref=e34] [cursor=pointer]
+        - button "■" [ref=e35] [cursor=pointer]
+        - button "▶" [ref=e36] [cursor=pointer]
+        - button "▶|" [ref=e37] [cursor=pointer]
+        - button "▶▶|" [ref=e38] [cursor=pointer]
+        - button "次→" [ref=e40] [cursor=pointer]
+      - generic [ref=e196]:
+        - generic "クリックして名前を変更" [ref=e197]: Chorus
+        - generic [ref=e198]:
+          - button "1" [ref=e199] [cursor=pointer]
+          - button "2" [ref=e200] [cursor=pointer]
+          - button "3" [ref=e201] [cursor=pointer]
+          - button "4" [ref=e202] [cursor=pointer]
+          - button "5" [ref=e203] [cursor=pointer]
+          - button "6" [ref=e204] [cursor=pointer]
+          - button "7" [ref=e205] [cursor=pointer]
+          - button "8" [ref=e206] [cursor=pointer]
+          - button "9" [ref=e208] [cursor=pointer]
+          - button "10" [ref=e209] [cursor=pointer]
+          - button "11" [ref=e210] [cursor=pointer]
+          - button "12" [ref=e211] [cursor=pointer]
+          - button "13" [ref=e212] [cursor=pointer]
+          - button "14" [ref=e213] [cursor=pointer]
+          - button "15" [ref=e214] [cursor=pointer]
+          - button "16" [ref=e215] [cursor=pointer]
+      - generic [ref=e42]:
+        - generic "再生速度（BPM）" [ref=e43]:
+          - text: BPM
+          - spinbutton "BPM" [ref=e44]: "109"
+        - slider "体の向き" [ref=e46] [cursor=pointer]: "0"
+        - button "⊙" [ref=e48] [cursor=pointer]
+        - button "↗" [ref=e49] [cursor=pointer]
+        - button "→" [ref=e50] [cursor=pointer]
+    - button "?" [ref=e52] [cursor=pointer]
+  - complementary [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]: ポーズ操作
+      - generic [ref=e56]:
+        - button "↺ リセット" [ref=e57] [cursor=pointer]
+        - button "← 戻る" [disabled] [ref=e58]
+    - generic [ref=e59]:
+      - generic [ref=e60]: カウント参照
+      - generic [ref=e61]: このカウントのメモ
+      - textbox "このカウントのメモ" [ref=e62]:
+        - /placeholder: "例: ここで右に体重移動"
+      - generic [ref=e63]: 他カウントからポーズを適用
+      - generic [ref=e103]:
+        - generic [ref=e216]:
+          - generic [ref=e217]:
+            - generic [ref=e218]: Chorus-2
+            - generic [ref=e219]: ポーズあり
+          - button "参照" [ref=e220] [cursor=pointer]
+          - button "適用" [ref=e221] [cursor=pointer]
+        - generic [ref=e222]:
+          - generic [ref=e223]:
+            - generic [ref=e224]: Chorus-3
+            - generic [ref=e225]: ポーズあり
+          - button "参照" [ref=e226] [cursor=pointer]
+          - button "適用" [ref=e227] [cursor=pointer]
+        - generic [ref=e228]:
+          - generic [ref=e229]:
+            - generic [ref=e230]: Chorus-4
+            - generic [ref=e231]: ポーズあり
+          - button "参照" [ref=e232] [cursor=pointer]
+          - button "適用" [ref=e233] [cursor=pointer]
+        - generic [ref=e234]:
+          - generic [ref=e235]:
+            - generic [ref=e236]: Chorus-5
+            - generic [ref=e237]: ポーズあり
+          - button "参照" [ref=e238] [cursor=pointer]
+          - button "適用" [ref=e239] [cursor=pointer]
+        - generic [ref=e240]:
+          - generic [ref=e241]:
+            - generic [ref=e242]: Chorus-6
+            - generic [ref=e243]: ポーズあり
+          - button "参照" [ref=e244] [cursor=pointer]
+          - button "適用" [ref=e245] [cursor=pointer]
+        - generic [ref=e246]:
+          - generic [ref=e247]:
+            - generic [ref=e248]: Chorus-7
+            - generic [ref=e249]: ポーズあり
+          - button "参照" [ref=e250] [cursor=pointer]
+          - button "適用" [ref=e251] [cursor=pointer]
+        - generic [ref=e252]:
+          - generic [ref=e253]:
+            - generic [ref=e254]: Chorus-8
+            - generic [ref=e255]: ポーズあり
+          - button "参照" [ref=e256] [cursor=pointer]
+          - button "適用" [ref=e257] [cursor=pointer]
+        - generic [ref=e258]:
+          - generic [ref=e259]:
+            - generic [ref=e260]: Chorus-9
+            - generic [ref=e261]: ポーズあり
+          - button "参照" [ref=e262] [cursor=pointer]
+          - button "適用" [ref=e263] [cursor=pointer]
+        - generic [ref=e264]:
+          - generic [ref=e265]:
+            - generic [ref=e266]: Chorus-10
+            - generic [ref=e267]: ポーズあり
+          - button "参照" [ref=e268] [cursor=pointer]
+          - button "適用" [ref=e269] [cursor=pointer]
+        - generic [ref=e270]:
+          - generic [ref=e271]:
+            - generic [ref=e272]: Chorus-11
+            - generic [ref=e273]: ポーズあり
+          - button "参照" [ref=e274] [cursor=pointer]
+          - button "適用" [ref=e275] [cursor=pointer]
+        - generic [ref=e276]:
+          - generic [ref=e277]:
+            - generic [ref=e278]: Chorus-12
+            - generic [ref=e279]: ポーズあり
+          - button "参照" [ref=e280] [cursor=pointer]
+          - button "適用" [ref=e281] [cursor=pointer]
+        - generic [ref=e282]:
+          - generic [ref=e283]:
+            - generic [ref=e284]: Chorus-13
+            - generic [ref=e285]: ポーズあり
+          - button "参照" [ref=e286] [cursor=pointer]
+          - button "適用" [ref=e287] [cursor=pointer]
+        - generic [ref=e288]:
+          - generic [ref=e289]:
+            - generic [ref=e290]: Chorus-14
+            - generic [ref=e291]: ポーズあり
+          - button "参照" [ref=e292] [cursor=pointer]
+          - button "適用" [ref=e293] [cursor=pointer]
+        - generic [ref=e294]:
+          - generic [ref=e295]:
+            - generic [ref=e296]: Chorus-15
+            - generic [ref=e297]: ポーズあり
+          - button "参照" [ref=e298] [cursor=pointer]
+          - button "適用" [ref=e299] [cursor=pointer]
+        - generic [ref=e300]:
+          - generic [ref=e301]:
+            - generic [ref=e302]: Chorus-16
+            - generic [ref=e303]: ポーズあり
+          - button "参照" [ref=e304] [cursor=pointer]
+          - button "適用" [ref=e305] [cursor=pointer]
+    - generic [ref=e64]:
+      - generic [ref=e65]: 保存ポーズ
+      - paragraph [ref=e66]: 名前を付けて保存 → ワンクリックで現在のカウントに適用
+      - generic [ref=e67]:
+        - textbox "ポーズ名…" [ref=e68]
+        - button "保存" [ref=e69] [cursor=pointer]
+      - generic [ref=e195]: ポーズを保存すると参照できます
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - button "FILE" [ref=e73] [cursor=pointer]
+        - button "VIEW" [ref=e74] [cursor=pointer]
+      - textbox "workName" [ref=e75]
+      - generic [ref=e76]:
+        - button "💾" [ref=e77] [cursor=pointer]
+        - button "＋" [ref=e78] [cursor=pointer]
+        - button "⊕" [ref=e79] [cursor=pointer]
+        - button "↑" [ref=e80] [cursor=pointer]
+        - button "↓" [ref=e81] [cursor=pointer]

@@ -1,0 +1,72 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e5]: D
+    - button "選択" [ref=e6] [cursor=pointer]:
+      - img [ref=e7]
+      - generic [ref=e9]: 選択
+    - button "移動" [ref=e10] [cursor=pointer]:
+      - img [ref=e11]
+      - generic [ref=e13]: 移動
+    - button "矢印" [ref=e15] [cursor=pointer]:
+      - img [ref=e16]
+      - generic [ref=e19]: 矢印
+    - button "円弧" [ref=e20] [cursor=pointer]:
+      - img [ref=e21]
+      - generic [ref=e24]: 円弧
+    - button "文字" [ref=e25] [cursor=pointer]:
+      - img [ref=e26]:
+        - generic [ref=e27]: T
+      - generic [ref=e28]: 文字
+  - generic [ref=e29]:
+    - generic [ref=e30]:
+      - generic "矢印・文字レイヤー"
+      - generic:
+        - generic:
+          - text: "Count:"
+          - strong: A – 1
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - button "|◀" [ref=e34] [cursor=pointer]
+        - button "■" [ref=e35] [cursor=pointer]
+        - button "▶" [ref=e36] [cursor=pointer]
+        - button "▶|" [ref=e37] [cursor=pointer]
+        - button "▶▶|" [ref=e38] [cursor=pointer]
+        - button "次→" [ref=e40] [cursor=pointer]
+      - generic [ref=e42]:
+        - generic "再生速度（BPM）" [ref=e43]:
+          - text: BPM
+          - spinbutton "BPM" [ref=e44]: "109"
+        - slider "体の向き" [ref=e46] [cursor=pointer]: "0"
+        - button "⊙" [ref=e48] [cursor=pointer]
+        - button "↗" [ref=e49] [cursor=pointer]
+        - button "→" [ref=e50] [cursor=pointer]
+    - button "?" [ref=e52] [cursor=pointer]
+  - complementary [ref=e53]:
+    - generic [ref=e54]:
+      - generic [ref=e55]: ポーズ操作
+      - generic [ref=e56]:
+        - button "↺ リセット" [ref=e57] [cursor=pointer]
+        - button "← 戻る" [disabled] [ref=e58]
+    - generic [ref=e59]:
+      - generic [ref=e60]: カウント参照
+      - generic [ref=e61]: このカウントのメモ
+      - textbox "このカウントのメモ" [ref=e62]:
+        - /placeholder: "例: ここで右に体重移動"
+      - generic [ref=e63]: 他カウントからポーズを適用
+    - generic [ref=e64]:
+      - generic [ref=e65]: 保存ポーズ
+      - paragraph [ref=e66]: 名前を付けて保存 → ワンクリックで現在のカウントに適用
+      - generic [ref=e67]:
+        - textbox "ポーズ名…" [ref=e68]
+        - button "保存" [ref=e69] [cursor=pointer]
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - button "FILE" [ref=e73] [cursor=pointer]
+        - button "VIEW" [ref=e74] [cursor=pointer]
+      - textbox "workName" [ref=e75]
+      - generic [ref=e76]:
+        - button "💾" [ref=e77] [cursor=pointer]
+        - button "＋" [ref=e78] [cursor=pointer]
+        - button "⊕" [ref=e79] [cursor=pointer]
+        - button "↑" [ref=e80] [cursor=pointer]
+        - button "↓" [ref=e81] [cursor=pointer]

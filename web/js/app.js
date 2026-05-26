@@ -2,15 +2,13 @@
  * app.js — Dance Sequence Note
  *
  * 操作体系:
- *   - 関節ドラッグ → 粘土細工型 6DOF（平行移動 + 回転・制限なし）
- *   - 肩の上下ドラッグ → 肩すくめ / 肩下制
+ *   - 関節ドラッグ → 画面平行移動 / Shift+ドラッグ → 奥行き
  *   - カウント切替 → ポーズ・矢印・メモを同期表示
  *   - 背景ドラッグ → 視点変更
  *   - ツールバー → アノテーション追加モード
  */
 import {
-  BONE_DEFS, BONE_LABELS, REST_POSE, REST_POSE_POS,
-  cloneBoneRot, cloneBonePos, sanitizeBoneRot, sanitizeBonePos, sanitizeBoneScale,
+  REST_JOINT_POS, cloneJointPos, sanitizeJointPos,
   createStage,
 } from "./pose-3d.js";
 import {
@@ -24,9 +22,10 @@ const stageWrap    = document.getElementById("stageWrap");
 const viewport3d   = document.getElementById("viewport3d");
 const annotCanvas  = document.getElementById("annotCanvas");
 
-const bodyYawEl    = document.getElementById("bodyYaw");
 const countLabel   = document.getElementById("currentCountLabel");
 const countMemoEl  = document.getElementById("countMemo");
+const countRefSearchEl = document.getElementById("countRefSearch");
+const countRefHintEl   = document.getElementById("countRefHint");
 const fieldMotionEl = document.getElementById("fieldMotion");
 
 
@@ -55,11 +54,12 @@ const inlineEditEl    = document.getElementById("inlineEdit");
 const inlineEditInput = document.getElementById("inlineEditInput");
 
 // ─── 定数 ────────────────────────────────────────────────────
-const LS_KEY        = "dance-studio-v5";
-const LS_POSES_KEY  = "dance-studio-v5-poses";
+const LS_KEY         = "dance-studio-v5";
+const LS_POSES_KEY   = "dance-studio-v5-poses";
+const LS_LIBRARY_KEY = "dance-studio-v5-library";
 const COUNTS_PER_PHRASE = 16;
-const PLAY_INTERVAL_MS  = 550;
 const MAX_POSE_UNDO     = 32;
+const BODY_YAW_STEP     = 15;
 
 // カウントごとのポーズ Undo 履歴（保存しない）
 const poseUndoStacks = new Map();
@@ -73,6 +73,8 @@ let selectedBoneId = null;
 let selectedItemId = null;
 let editingItemId  = null;
 
+let renamingPhraseIdx = -1; // フレーズ名リネーム中のインデックス（-1 = なし）
+
 let dragKind      = null;   // "joint" | "orbit" | "item-*"
 let dragBoneId    = null;
 let dragItemId    = null;
@@ -81,8 +83,6 @@ let dragUndoPushed = false; // 今回のドラッグで Undo を積んだか
 
 let addFbTimer  = 0;
 let saveTimer   = 0;
-let playTimer   = 0;
-let isPlaying   = false;
 let stage       = null;
 
 let currentTool = "select";  // "select" | "orbit" | "arrow" | "spin" | "text"
@@ -99,16 +99,40 @@ function phraseLabel(idx) {
   return n === 0 ? ch : `${ch}${n + 1}`;
 }
 
+const REST_PALM_ROT = { handL: 0, handR: 0, footL: 0, footR: 0 };
+const REST_WRIST_PITCH = { handL: 0, handR: 0, footL: 0, footR: 0 };
+
+function isPalmOrSoleBone(boneId) {
+  return boneId?.startsWith("hand") || boneId?.startsWith("foot");
+}
+
+function updatePalmRotDisplay(boneId, rollDeg, pitchDeg = 0) {
+  const el = document.getElementById("palmrot-display");
+  if (!el) return;
+  const roll = Math.round(Number(rollDeg) || 0);
+  const pitch = Math.round(Number(pitchDeg) || 0);
+  el.textContent = pitch !== 0
+    ? `roll ${roll}° pitch ${pitch}°`
+    : `palm ${roll}°`;
+  el.hidden = false;
+}
+
+function clearPalmRotDisplay() {
+  const el = document.getElementById("palmrot-display");
+  if (!el) return;
+  el.textContent = "";
+  el.hidden = true;
+}
+
 function makeCount(n) {
   return {
     n,
-    boneRot:   cloneBoneRot(REST_POSE),
-    bonePos:   cloneBonePos(REST_POSE_POS),
-    items:     [],
-    memo:      "",
-    bodyYaw:   0,
-    headYaw:   0,
-    boneScale: { armScale: 1, legScale: 1 },
+    jointPos: cloneJointPos(REST_JOINT_POS),
+    palmRot: { handL: 0, handR: 0, footL: 0, footR: 0 },
+    wristPitch: { handL: 0, handR: 0, footL: 0, footR: 0 },
+    items: [],
+    memo: "",
+    bodyYaw: 0,
   };
 }
 
@@ -137,16 +161,24 @@ function countDisplayLabel(pi, ci) {
 function hasPoseContent(c) {
   if (!c) return false;
   if (Math.abs(c.bodyYaw ?? 0) > 1) return true;
-  const br = c.boneRot ?? {};
-  for (const id of Object.keys(REST_POSE)) {
-    const r = br[id] ?? [0, 0, 0];
-    if (Math.abs(r[0]) > 2 || Math.abs(r[1]) > 2 || Math.abs(r[2]) > 2) return true;
+  const jp = c.jointPos ?? {};
+  for (const id of Object.keys(REST_JOINT_POS)) {
+    const p = jp[id] ?? REST_JOINT_POS[id];
+    const r = REST_JOINT_POS[id];
+    if (Math.abs(p[0] - r[0]) > 0.01
+     || Math.abs(p[1] - r[1]) > 0.01
+     || Math.abs(p[2] - r[2]) > 0.01) return true;
   }
-  const bp = c.bonePos ?? {};
-  for (const id of Object.keys(REST_POSE_POS)) {
-    const p = bp[id] ?? [0, 0, 0];
-    if (Math.abs(p[0]) > 0.01 || Math.abs(p[1]) > 0.01 || Math.abs(p[2]) > 0.01) return true;
-  }
+  const pr = c.palmRot ?? {};
+  const wp = c.wristPitch ?? {};
+  if (Math.abs(Number(pr.handL) || 0) > 1
+   || Math.abs(Number(pr.handR) || 0) > 1
+   || Math.abs(Number(pr.footL) || 0) > 1
+   || Math.abs(Number(pr.footR) || 0) > 1) return true;
+  if (Math.abs(Number(wp.handL) || 0) > 1
+   || Math.abs(Number(wp.handR) || 0) > 1
+   || Math.abs(Number(wp.footL) || 0) > 1
+   || Math.abs(Number(wp.footR) || 0) > 1) return true;
   return false;
 }
 
@@ -161,56 +193,77 @@ function cloneItems(items) {
   return (items ?? []).map(item => ({ ...item, id: uid() }));
 }
 
+function copyPalmRot(pr) {
+  return {
+    handL: Number.isFinite(Number(pr?.handL)) ? Number(pr.handL) : 0,
+    handR: Number.isFinite(Number(pr?.handR)) ? Number(pr.handR) : 0,
+    footL: Number.isFinite(Number(pr?.footL)) ? Number(pr.footL) : 0,
+    footR: Number.isFinite(Number(pr?.footR)) ? Number(pr.footR) : 0,
+  };
+}
+
+function copyWristPitch(wp) {
+  return {
+    handL: Number.isFinite(Number(wp?.handL)) ? Number(wp.handL) : 0,
+    handR: Number.isFinite(Number(wp?.handR)) ? Number(wp.handR) : 0,
+    footL: Number.isFinite(Number(wp?.footL)) ? Number(wp.footL) : 0,
+    footR: Number.isFinite(Number(wp?.footR)) ? Number(wp.footR) : 0,
+  };
+}
+
 function sanitizeCount(c) {
-  c.boneRot   = sanitizeBoneRot(c.boneRot);
-  c.bonePos   = sanitizeBonePos(c.bonePos);
-  c.items     ??= [];
-  c.memo      ??= "";
-  c.headYaw   = Number.isFinite(Number(c.headYaw)) ? Number(c.headYaw) : 0;
-  c.bodyYaw   = Number.isFinite(Number(c.bodyYaw)) ? Number(c.bodyYaw) : 0;
-  c.boneScale = sanitizeBoneScale(c.boneScale);
+  c.jointPos = sanitizeJointPos(c.jointPos);
+  c.palmRot  = copyPalmRot(c.palmRot);
+  c.wristPitch = copyWristPitch(c.wristPitch);
+  c.bodyYaw = Number.isFinite(Number(c.bodyYaw)) ? Number(c.bodyYaw) : 0;
+  c.items  ??= [];
+  c.memo   ??= "";
   return c;
 }
 
 function copyCountFull(src, dst) {
-  dst.boneRot   = sanitizeBoneRot(src.boneRot);
-  dst.bonePos   = sanitizeBonePos(src.bonePos);
-  dst.bodyYaw   = Number.isFinite(Number(src.bodyYaw)) ? Number(src.bodyYaw) : 0;
-  dst.headYaw   = Number.isFinite(Number(src.headYaw)) ? Number(src.headYaw) : 0;
-  dst.boneScale = sanitizeBoneScale(src.boneScale);
-  dst.memo      = src.memo ?? "";
-  dst.items     = cloneItems(src.items);
+  dst.jointPos = sanitizeJointPos(src.jointPos);
+  dst.palmRot  = copyPalmRot(src.palmRot);
+  dst.wristPitch = copyWristPitch(src.wristPitch);
+  dst.bodyYaw  = Number.isFinite(Number(src.bodyYaw)) ? Number(src.bodyYaw) : 0;
+  dst.memo     = src.memo ?? "";
+  dst.items    = cloneItems(src.items);
 }
 
 function applyPoseData(target, source, label) {
   if (target === current()) pushPoseUndo();
-  target.boneRot   = sanitizeBoneRot(source.boneRot);
-  target.bonePos   = sanitizeBonePos(source.bonePos);
-  target.bodyYaw   = Number.isFinite(Number(source.bodyYaw)) ? Number(source.bodyYaw) : 0;
-  target.headYaw   = Number.isFinite(Number(source.headYaw)) ? Number(source.headYaw) : 0;
-  target.boneScale = sanitizeBoneScale(source.boneScale);
-  selectedBoneId   = null;
-  selectedItemId   = null;
+  target.jointPos = sanitizeJointPos(source.jointPos);
+  target.palmRot  = copyPalmRot(source.palmRot);
+  target.wristPitch = copyWristPitch(source.wristPitch);
+  target.bodyYaw  = Number.isFinite(Number(source.bodyYaw)) ? Number(source.bodyYaw) : 0;
+  selectedBoneId = null;
+  selectedItemId = null;
   draw();
   if (label) showFb(`${label} のポーズを適用`);
 }
 
+function countStatusLabel(phrase, ci) {
+  return `${phrase.label} – ${ci + 1} / ${phrase.counts.length}`;
+}
+
 function switchToCount(pi, ci) {
-  stopPlay();
   phraseIdx = pi;
-  countIdx  = ci;
+  const len = work.phrases[phraseIdx].counts.length;
+  countIdx  = Math.max(0, Math.min(len - 1, ci));
   selectedItemId = null;
   selectedBoneId = null;
+  clearPalmRotDisplay();
   syncCountUI();
   rebuildTimeline();
   draw();
+  renderSongOverview();
 }
 
 function syncCountUI() {
   const c      = current();
   const phrase = work.phrases[phraseIdx];
 
-  if (countLabel) countLabel.textContent = `${phrase.label} – ${countIdx + 1}`;
+  if (countLabel) countLabel.textContent = countStatusLabel(phrase, countIdx);
 
   const memo = c.memo ?? "";
   if (countMemoEl && document.activeElement !== countMemoEl) countMemoEl.value = memo;
@@ -244,6 +297,74 @@ function scheduleSave() {
   saveTimer = setTimeout(saveWork, 800);
 }
 
+function loadLibrary() {
+  try { return JSON.parse(localStorage.getItem(LS_LIBRARY_KEY)) ?? []; } catch { return []; }
+}
+function saveCurrentToLibrary() {
+  const lib = loadLibrary();
+  work._savedAt = Date.now();
+  work._phraseCount = work.phrases.length;
+  const idx = lib.findIndex(w => w.id === work.id);
+  if (idx >= 0) lib[idx] = work; else lib.push(work);
+  localStorage.setItem(LS_LIBRARY_KEY, JSON.stringify(lib));
+}
+function openWorkFromLibrary(id) {
+  const lib = loadLibrary();
+  const found = lib.find(w => w.id === id);
+  if (!found) return;
+  if (!confirm(`「${found.name || "無名"}」を開きますか？未保存の変更は失われます。`)) return;
+  for (const phrase of found.phrases) {
+    for (const c of phrase.counts) sanitizeCount(c);
+  }
+  work = found;
+  phraseIdx = 0; countIdx = 0;
+  saveWork(); rebuildTimeline(); syncCountUI(); renderPoseLibrary(); draw();
+  renderWorkLibrary();
+  showFb(`「${work.name || "無名"}」を開きました`);
+}
+function deleteWorkFromLibrary(id) {
+  const lib = loadLibrary().filter(w => w.id !== id);
+  localStorage.setItem(LS_LIBRARY_KEY, JSON.stringify(lib));
+  renderWorkLibrary();
+}
+function renderWorkLibrary() {
+  const list = document.getElementById("workLibraryList");
+  if (!list) return;
+  list.innerHTML = "";
+  const lib = loadLibrary();
+  if (lib.length === 0) {
+    list.innerHTML = '<div class="pose-empty">保存した振り付けはありません</div>';
+    return;
+  }
+  [...lib].reverse().forEach(w => {
+    const item = document.createElement("div");
+    item.className = "pose-item work-library-item" + (w.id === work.id ? " is-current-work" : "");
+    const info = document.createElement("div");
+    info.style.flex = "1"; info.style.minWidth = "0";
+    const name = document.createElement("span");
+    name.className = "pose-item-name";
+    name.textContent = w.name || "無名";
+    const meta = document.createElement("span");
+    meta.className = "pose-item-source";
+    const d = w._savedAt ? new Date(w._savedAt).toLocaleDateString("ja-JP") : "-";
+    meta.textContent = `${w._phraseCount ?? w.phrases?.length ?? "?"} フレーズ ・ ${d}`;
+    info.appendChild(name); info.appendChild(meta);
+    const openBtn = document.createElement("button");
+    openBtn.type = "button"; openBtn.className = "pose-item-apply";
+    openBtn.textContent = w.id === work.id ? "編集中" : "開く";
+    openBtn.disabled = w.id === work.id;
+    openBtn.addEventListener("click", () => openWorkFromLibrary(w.id));
+    const delBtn = document.createElement("button");
+    delBtn.type = "button"; delBtn.className = "pose-item-del"; delBtn.textContent = "×";
+    delBtn.addEventListener("click", () => {
+      if (!confirm(`「${w.name || "無名"}」を削除しますか？`)) return;
+      deleteWorkFromLibrary(w.id);
+    });
+    item.appendChild(info); item.appendChild(openBtn); item.appendChild(delBtn);
+    list.appendChild(item);
+  });
+}
+
 // ─── ポーズライブラリ ────────────────────────────────────────
 function loadPoseLibrary() {
   try { return JSON.parse(localStorage.getItem(LS_POSES_KEY)) ?? []; } catch { return []; }
@@ -252,63 +373,142 @@ function savePoseLibrary() {
   try { localStorage.setItem(LS_POSES_KEY, JSON.stringify(poseLibrary)); } catch { /* ignore */ }
 }
 
-function renderCountReferences() {
-  const list = document.getElementById("countRefList");
-  if (!list) return;
-  list.innerHTML = "";
+function buildPoseSearchEntries() {
+  const entries = [];
 
-  let found = false;
+  for (const pose of poseLibrary) {
+    entries.push({
+      kind: "library",
+      title: pose.name,
+      sub: pose.source ?? "保存ポーズ",
+      haystack: `${pose.name} ${pose.source ?? ""}`.toLowerCase(),
+      hasPose: true,
+      apply: () => applyPoseData(current(), pose, pose.name),
+    });
+  }
+
   work.phrases.forEach((phrase, pi) => {
     phrase.counts.forEach((count, ci) => {
       if (pi === phraseIdx && ci === countIdx) return;
-      if (!hasPoseContent(count) && !count.memo?.trim() && !(count.items?.length)) return;
-      found = true;
+      const label = countDisplayLabel(pi, ci);
+      const memo  = count.memo?.trim() ?? "";
+      const hasPose = hasPoseContent(count);
+      if (!hasPose && !memo) return;
 
-      const label   = countDisplayLabel(pi, ci);
-      const preview = count.memo?.trim()
-        || (count.items?.length ? `矢印・文字 ${count.items.length}件` : "ポーズあり");
+      entries.push({
+        kind: "count",
+        title: label,
+        sub: memo || (hasPose ? "ポーズあり" : ""),
+        haystack: `${label} ${memo} ${phrase.label}`.toLowerCase(),
+        hasPose,
+        goto: () => switchToCount(pi, ci),
+        apply: () => applyPoseData(current(), count, label),
+      });
+    });
+  });
 
-      const item = document.createElement("div");
-      item.className = "count-ref-item";
+  return entries;
+}
 
-      const meta = document.createElement("div");
-      meta.className = "count-ref-meta";
-      const lbl = document.createElement("span");
-      lbl.className = "count-ref-label";
-      lbl.textContent = label;
-      const prev = document.createElement("span");
-      prev.className = "count-ref-preview";
-      prev.textContent = preview;
-      meta.appendChild(lbl);
-      meta.appendChild(prev);
+function poseSearchRank(entry, q) {
+  const title = entry.title.toLowerCase();
+  if (title === q) return 0;
+  if (title.startsWith(q)) return 1;
+  if (entry.kind === "library" && entry.title.toLowerCase().includes(q)) return 2;
+  return 3;
+}
 
+function renderCountReferences() {
+  const list = document.getElementById("countRefList");
+  if (!list) return;
+
+  const q = countRefSearchEl?.value.trim().toLowerCase() ?? "";
+  list.innerHTML = "";
+
+  if (!q) {
+    if (countRefHintEl) countRefHintEl.classList.remove("hidden");
+    return;
+  }
+  if (countRefHintEl) countRefHintEl.classList.add("hidden");
+
+  const matches = buildPoseSearchEntries()
+    .filter(e => e.haystack.includes(q))
+    .sort((a, b) => {
+      const ra = poseSearchRank(a, q);
+      const rb = poseSearchRank(b, q);
+      if (ra !== rb) return ra - rb;
+      return a.title.localeCompare(b.title, "ja");
+    })
+    .slice(0, 12);
+
+  if (matches.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "pose-empty";
+    empty.textContent = `「${countRefSearchEl?.value.trim()}」に一致するポーズがありません`;
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const entry of matches) {
+    const item = document.createElement("div");
+    item.className = "count-ref-item";
+
+    const meta = document.createElement("div");
+    meta.className = "count-ref-meta";
+
+    const lbl = document.createElement("span");
+    lbl.className = "count-ref-label";
+    lbl.textContent = entry.title;
+
+    const badge = document.createElement("span");
+    badge.className = "count-ref-badge" + (entry.kind === "library" ? " is-library" : "");
+    badge.textContent = entry.kind === "library" ? "保存" : "カウント";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "count-ref-title-row";
+    titleRow.appendChild(lbl);
+    titleRow.appendChild(badge);
+
+    const prev = document.createElement("span");
+    prev.className = "count-ref-preview";
+    prev.textContent = entry.sub;
+
+    meta.appendChild(titleRow);
+    meta.appendChild(prev);
+
+    if (entry.kind === "count" && entry.goto) {
       const gotoBtn = document.createElement("button");
       gotoBtn.type = "button";
       gotoBtn.className = "pose-item-goto";
       gotoBtn.textContent = "参照";
-      gotoBtn.title = `${label} を開く`;
-      gotoBtn.addEventListener("click", () => switchToCount(pi, ci));
-
-      const applyBtn = document.createElement("button");
-      applyBtn.type = "button";
-      applyBtn.className = "pose-item-apply";
-      applyBtn.textContent = "適用";
-      applyBtn.title = `${label} のポーズを現在のカウントに適用`;
-      applyBtn.addEventListener("click", () => applyPoseData(current(), count, label));
-
+      gotoBtn.title = `${entry.title} を開く`;
+      gotoBtn.addEventListener("click", entry.goto);
       item.appendChild(meta);
       item.appendChild(gotoBtn);
-      item.appendChild(applyBtn);
-      list.appendChild(item);
-    });
-  });
+    } else {
+      item.appendChild(meta);
+    }
 
-  if (!found) {
-    const empty = document.createElement("div");
-    empty.className = "pose-empty";
-    empty.textContent = "他カウントにデータがありません";
-    list.appendChild(empty);
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "pose-item-apply";
+    applyBtn.textContent = "適用";
+    applyBtn.title = `${entry.title} のポーズを現在のカウントに適用`;
+    applyBtn.disabled = !entry.hasPose;
+    applyBtn.addEventListener("click", entry.apply);
+    item.appendChild(applyBtn);
+
+    list.appendChild(item);
   }
+}
+
+function applyFirstPoseSearchResult() {
+  const q = countRefSearchEl?.value.trim().toLowerCase() ?? "";
+  if (!q) return;
+  const first = buildPoseSearchEntries()
+    .filter(e => e.haystack.includes(q) && e.hasPose)
+    .sort((a, b) => poseSearchRank(a, q) - poseSearchRank(b, q))[0];
+  first?.apply();
 }
 
 function renderPoseLibrary() {
@@ -351,9 +551,10 @@ function renderPoseLibrary() {
     applyBtn.title = "現在のカウントに適用";
     applyBtn.addEventListener("click", () => {
       applyPoseData(current(), {
-        boneRot: pose.boneRot, bonePos: pose.bonePos,
-        bodyYaw: pose.bodyYaw ?? 0, headYaw: pose.headYaw ?? 0,
-        boneScale: pose.boneScale ?? {},
+        jointPos: pose.jointPos,
+        palmRot:  pose.palmRot,
+        wristPitch: pose.wristPitch,
+        bodyYaw: pose.bodyYaw ?? 0,
       }, pose.name);
     });
 
@@ -365,6 +566,7 @@ function renderPoseLibrary() {
       poseLibrary = poseLibrary.filter(p => p.id !== pose.id);
       savePoseLibrary();
       renderPoseLibrary();
+      renderCountReferences();
     });
 
     item.appendChild(nameWrap);
@@ -392,14 +594,14 @@ document.getElementById("btnSavePose")?.addEventListener("click", () => {
     id: uid(),
     name,
     source: `保存元: ${countDisplayLabel(phraseIdx, countIdx)}`,
-    boneRot: cloneBoneRot(c.boneRot),
-    bonePos: cloneBonePos(c.bonePos),
+    jointPos: cloneJointPos(c.jointPos),
+    palmRot:  { ...c.palmRot },
+    wristPitch: { ...c.wristPitch },
     bodyYaw: c.bodyYaw ?? 0,
-    headYaw: c.headYaw ?? 0,
-    boneScale: { ...(c.boneScale ?? {}) },
   });
   savePoseLibrary();
   renderPoseLibrary();
+  renderCountReferences();
   if (input) input.value = "";
   showFb(`「${name}」を保存`);
 });
@@ -407,27 +609,30 @@ document.getElementById("btnSavePose")?.addEventListener("click", () => {
 countMemoEl?.addEventListener("input", () => setCountMemo(countMemoEl.value));
 fieldMotionEl?.addEventListener("input", () => setCountMemo(fieldMotionEl.value));
 
+countRefSearchEl?.addEventListener("input", () => renderCountReferences());
+countRefSearchEl?.addEventListener("keydown", ev => {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    applyFirstPoseSearchResult();
+  }
+});
+
 // ─── レンダリング ────────────────────────────────────────────
 function draw() {
   const c = current();
   if (!c) return;
   sanitizeCount(c);
   try {
-    stage?.render(c.boneRot, {
-      bodyYaw:        c.bodyYaw,
-      headYaw:        c.headYaw ?? 0,
+    stage?.render(c.jointPos, {
+      bodyYaw: c.bodyYaw,
       selectedBoneId,
-      boneScale:      c.boneScale,
-      bonePos:        c.bonePos,
+      palmRot: c.palmRot,
+      wristPitch: c.wristPitch,
     });
-  } catch (e) {
-    console.error("3D 描画エラー:", e);
-  }
+  } catch (e) { console.error("3D描画エラー:", e); }
   try {
     drawAnnotCanvas(annotCanvas, c.items ?? [], selectedItemId);
-  } catch (e) {
-    console.error("アノテーション描画エラー:", e);
-  }
+  } catch (e) { console.error(e); }
   updateControls();
   scheduleSave();
 }
@@ -439,20 +644,18 @@ function poseUndoKey(pi = phraseIdx, ci = countIdx) {
 
 function poseSnapshot(c) {
   return {
-    boneRot:   cloneBoneRot(c.boneRot),
-    bonePos:   cloneBonePos(c.bonePos),
-    bodyYaw:   c.bodyYaw ?? 0,
-    headYaw:   c.headYaw ?? 0,
-    boneScale: sanitizeBoneScale(c.boneScale),
+    jointPos: cloneJointPos(c.jointPos),
+    palmRot:  { ...c.palmRot },
+    wristPitch: { ...c.wristPitch },
+    bodyYaw:  c.bodyYaw ?? 0,
   };
 }
 
 function applyPoseSnapshot(c, snap) {
-  c.boneRot   = cloneBoneRot(snap.boneRot);
-  c.bonePos   = cloneBonePos(snap.bonePos);
-  c.bodyYaw   = snap.bodyYaw ?? 0;
-  c.headYaw   = snap.headYaw ?? 0;
-  c.boneScale = sanitizeBoneScale(snap.boneScale);
+  c.jointPos = cloneJointPos(snap.jointPos);
+  c.palmRot  = { ...snap.palmRot };
+  c.wristPitch = { ...(snap.wristPitch ?? REST_WRIST_PITCH) };
+  c.bodyYaw  = snap.bodyYaw ?? 0;
 }
 
 function pushPoseUndo(pi = phraseIdx, ci = countIdx) {
@@ -483,11 +686,10 @@ function undoPose() {
 function resetCurrentPose() {
   pushPoseUndo();
   const c = current();
-  c.boneRot   = cloneBoneRot(REST_POSE);
-  c.bonePos   = cloneBonePos(REST_POSE_POS);
-  c.bodyYaw   = 0;
-  c.headYaw   = 0;
-  c.boneScale = { armScale: 1, legScale: 1 };
+  c.jointPos = cloneJointPos(REST_JOINT_POS);
+  c.palmRot  = { handL: 0, handR: 0, footL: 0, footR: 0 };
+  c.wristPitch = { handL: 0, handR: 0, footL: 0, footR: 0 };
+  c.bodyYaw  = 0;
   selectedBoneId = null;
   draw();
   showFb("ポーズをリセット");
@@ -498,6 +700,49 @@ function updateUndoButton() {
   if (!btn) return;
   const stack = poseUndoStacks.get(poseUndoKey()) ?? [];
   btn.disabled = stack.length === 0;
+}
+
+function normalizeYaw(deg) {
+  return ((Math.round(Number(deg)) % 360) + 360) % 360;
+}
+
+function shortestYawDelta(fromDeg, toDeg) {
+  let delta = toDeg - fromDeg;
+  if (delta > 180) delta -= 360;
+  if (delta < -180) delta += 360;
+  return delta;
+}
+
+function setBodyYaw(yaw) {
+  const c = current();
+  const oldYaw = c.bodyYaw ?? 0;
+  const newYaw = normalizeYaw(yaw);
+  const _deltaYaw = shortestYawDelta(oldYaw, newYaw);
+  c.bodyYaw = newYaw;
+
+  // bodyYaw が変わっても手のひら・足裏の「世界空間での向き」を維持する。
+  // 骨軸が bodyYaw と一緒に回るため、palmRot を同量だけ逆回しして相殺する。
+  if (c.palmRot && Math.abs(_deltaYaw) > 0.0001) {
+    for (const id of ["handL", "handR", "footL", "footR"]) {
+      c.palmRot[id] = (c.palmRot[id] ?? 0) - _deltaYaw;
+    }
+  }
+
+  updateBodyYawButtons();
+  draw();
+}
+
+function nudgeBodyYaw(delta) {
+  setBodyYaw(current().bodyYaw + delta);
+}
+
+function updateBodyYawButtons() {
+  const yaw = normalizeYaw(current().bodyYaw);
+  document.querySelectorAll("[data-yaw-preset]").forEach(btn => {
+    const target = btn.dataset.yawPreset === "back" ? 180 : 0;
+    const dist = Math.min(Math.abs(yaw - target), 360 - Math.abs(yaw - target));
+    btn.classList.toggle("is-active", dist <= 2);
+  });
 }
 
 function updateControls() {
@@ -513,7 +758,7 @@ function updateControls() {
     if (itemCtrlTitle) itemCtrlTitle.textContent = isArrow ? "矢印の調整" : "テキスト";
   }
 
-  if (bodyYawEl) bodyYawEl.value = String(Math.round(c.bodyYaw) % 360);
+  updateBodyYawButtons();
 
   if (dirAngle) {
     dirAngle.disabled = !isArrow;
@@ -541,7 +786,7 @@ function updateControls() {
   }
 
   const phrase = work.phrases[phraseIdx];
-  if (countLabel) countLabel.textContent = `${phrase.label} – ${countIdx + 1}`;
+  if (countLabel) countLabel.textContent = countStatusLabel(phrase, countIdx);
   if (workNameEl && document.activeElement !== workNameEl) workNameEl.value = work.name ?? "";
   updateUndoButton();
 }
@@ -665,21 +910,35 @@ function onPointerMove(ev) {
 
   // 関節直接ドラッグ — 選択関節のみ更新（手動デルタ）
   if (dragKind === "joint" && dragBoneId && stage) {
-    if (!c.bonePos) c.bonePos = cloneBonePos(REST_POSE_POS);
+    if (!c.jointPos) c.jointPos = cloneJointPos(REST_JOINT_POS);
+    if (!c.palmRot) c.palmRot = { ...REST_PALM_ROT };
+    if (!c.wristPitch) c.wristPitch = { ...REST_WRIST_PITCH };
     const dx = prevDragNorm ? (x - prevDragNorm.x) * stageWrap.clientWidth  : 0;
     const dy = prevDragNorm ? (y - prevDragNorm.y) * stageWrap.clientHeight : 0;
     prevDragNorm = { x, y };
-    // 初回スパイク（クリック直後のジャンプ）を無視
     if (Math.hypot(dx, dy) > 90) return;
     if (!dragUndoPushed && Math.hypot(dx, dy) > 2) {
       pushPoseUndo();
       dragUndoPushed = true;
     }
     const updates = stage.solveJointDrag(
-      dragBoneId, x, y, dx, dy, c.boneRot, c.bonePos, c.bodyYaw,
+      dragBoneId, dx, dy,
+      c.jointPos, c.bodyYaw,
+      ev.shiftKey, ev.altKey,
+      c.palmRot, c.wristPitch,
     );
-    if (updates.boneRot) Object.assign(c.boneRot, updates.boneRot);
-    if (updates.bonePos) Object.assign(c.bonePos, updates.bonePos);
+    if (updates.jointPos)   Object.assign(c.jointPos,   updates.jointPos);
+    if (updates.palmRot)    Object.assign(c.palmRot,    updates.palmRot);
+    if (updates.wristPitch) Object.assign(c.wristPitch, updates.wristPitch);
+    if (ev.altKey && isPalmOrSoleBone(dragBoneId)) {
+      updatePalmRotDisplay(
+        dragBoneId,
+        c.palmRot[dragBoneId] ?? 0,
+        c.wristPitch[dragBoneId] ?? 0,
+      );
+    } else {
+      clearPalmRotDisplay();
+    }
     draw();
     return;
   }
@@ -705,6 +964,7 @@ function onPointerMove(ev) {
 
 function endDrag(ev) {
   if (dragKind === "orbit") stage?.orbitEnd();
+  clearPalmRotDisplay();
   dragKind     = null;
   dragBoneId   = null;
   dragItemId   = null;
@@ -756,66 +1016,17 @@ inlineEditInput?.addEventListener("blur", () => closeInlineEdit(true));
 document.getElementById("btnResetPose")?.addEventListener("click", resetCurrentPose);
 document.getElementById("btnUndoPose")?.addEventListener("click", () => undoPose());
 
-// ─── Body Yaw ──────────────────────────────────────────────
-bodyYawEl?.addEventListener("input", () => { current().bodyYaw = Number(bodyYawEl.value); draw(); });
-
-// ─── ビュープリセット ──────────────────────────────────────
-document.querySelectorAll("[data-view]").forEach(btn => {
-  const ANGLE = { front: 0, diag: 45, side: 85 };
+// ─── 体の向き ──────────────────────────────────────────────
+document.getElementById("btnBodyYawLeft")?.addEventListener("click", () => {
+  nudgeBodyYaw(-BODY_YAW_STEP);
+});
+document.getElementById("btnBodyYawRight")?.addEventListener("click", () => {
+  nudgeBodyYaw(BODY_YAW_STEP);
+});
+document.querySelectorAll("[data-yaw-preset]").forEach(btn => {
   btn.addEventListener("click", () => {
-    current().bodyYaw = ANGLE[btn.dataset.view] ?? 0;
-    if (bodyYawEl) bodyYawEl.value = String(current().bodyYaw);
-    draw();
+    setBodyYaw(btn.dataset.yawPreset === "back" ? 180 : 0);
   });
-});
-
-// ─── トランスポート ────────────────────────────────────────
-document.getElementById("btnFirst")?.addEventListener("click", () => {
-  switchToCount(phraseIdx, 0);
-});
-document.getElementById("btnLast")?.addEventListener("click", () => {
-  switchToCount(phraseIdx, COUNTS_PER_PHRASE - 1);
-});
-document.getElementById("btnNext")?.addEventListener("click", () => {
-  if (countIdx < COUNTS_PER_PHRASE - 1) switchToCount(phraseIdx, countIdx + 1);
-});
-document.getElementById("btnStop")?.addEventListener("click", () => {
-  stopPlay();
-  selectedItemId = null;
-  selectedBoneId = null;
-  draw();
-});
-document.getElementById("btnPlay")?.addEventListener("click", togglePlay);
-
-function togglePlay() { isPlaying ? stopPlay() : startPlay(); }
-function startPlay() {
-  isPlaying = true;
-  const btn = document.getElementById("btnPlay");
-  if (btn) btn.textContent = "⏸";
-  playTimer = setInterval(() => {
-    switchToCount(phraseIdx, (countIdx + 1) % COUNTS_PER_PHRASE);
-  }, PLAY_INTERVAL_MS);
-}
-
-function stopPlay() {
-  isPlaying = false; clearInterval(playTimer);
-  const btn = document.getElementById("btnPlay");
-  if (btn) btn.textContent = "▶";
-}
-
-// ─── カウントコピー ────────────────────────────────────────
-document.getElementById("btnCopyCount")?.addEventListener("click", () => {
-  const nextIdx = countIdx + 1;
-  if (nextIdx < COUNTS_PER_PHRASE) {
-    const srcLabel = countDisplayLabel(phraseIdx, countIdx);
-    pushPoseUndo(phraseIdx, nextIdx);
-    copyCountFull(current(), work.phrases[phraseIdx].counts[nextIdx]);
-    switchToCount(phraseIdx, nextIdx);
-    showFb(`${srcLabel} → ${countDisplayLabel(phraseIdx, nextIdx)} にコピー`);
-  }
-});
-document.getElementById("btnActi")?.addEventListener("click", () => {
-  document.getElementById("btnCopyCount")?.click();
 });
 
 // ─── フレーズ管理 ──────────────────────────────────────────
@@ -828,12 +1039,15 @@ document.getElementById("btnAddPhrase")?.addEventListener("click", () => {
 workNameEl?.addEventListener("input", () => { work.name = workNameEl.value; scheduleSave(); });
 document.getElementById("btnSaveWork")?.addEventListener("click", () => {
   saveWork();
+  saveCurrentToLibrary();
+  renderWorkLibrary();
   if (saveHint) { saveHint.textContent = "✓ 保存"; setTimeout(() => { saveHint.textContent = ""; }, 2500); }
 });
 document.getElementById("btnNewWork")?.addEventListener("click", () => {
   if (!confirm("現在の内容を破棄して新しい作品を始めますか？")) return;
   work = makeWork();
   switchToCount(0, 0);
+  renderWorkLibrary();
 });
 
 // ─── アノテーション追加 ────────────────────────────────────
@@ -880,37 +1094,166 @@ document.addEventListener("keydown", ev => {
   if (ev.target === inlineEditInput) return;
   if (ev.target.matches("input, textarea")) return;
 
+  if (ev.key === "?" || ev.key === "/") { ev.preventDefault(); toggleKbdOverlay(); return; }
   if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
-    ev.preventDefault(); stopPlay();
+    ev.preventDefault();
     const next = countIdx + (ev.key === "ArrowRight" ? 1 : -1);
-    switchToCount(phraseIdx, Math.max(0, Math.min(COUNTS_PER_PHRASE - 1, next)));
+    const len = work.phrases[phraseIdx].counts.length;
+    switchToCount(phraseIdx, Math.max(0, Math.min(len - 1, next)));
     return;
   }
-  if (ev.key === "Escape") { selectedBoneId = null; setTool("select"); draw(); return; }
+  if (ev.key === "Escape") {
+    const overlay = document.getElementById("kbdOverlay");
+    if (overlay && !overlay.classList.contains("hidden")) { toggleKbdOverlay(); return; }
+    selectedBoneId = null; setTool("select"); draw(); return;
+  }
   if ((ev.key === "Delete" || ev.key === "Backspace") && selectedItemId) {
     ev.preventDefault(); deleteSelectedItem();
   }
 });
 
+// ─── フレーズ名リネーム ────────────────────────────────────
+function startPhraseRename(pi, labelEl) {
+  if (renamingPhraseIdx !== -1) return;
+  renamingPhraseIdx = pi;
+  const phrase = work.phrases[pi];
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = phrase.label;
+  input.className = "phrase-label-input";
+  labelEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const commit = () => {
+    renamingPhraseIdx = -1;
+    const trimmed = input.value.trim();
+    if (trimmed) phrase.label = trimmed;
+    scheduleSave();
+    rebuildTimeline();
+    syncCountUI();
+  };
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", ev => {
+    if (ev.key === "Enter")  { ev.preventDefault(); input.blur(); }
+    if (ev.key === "Escape") { ev.preventDefault(); input.value = phrase.label; input.blur(); }
+  });
+}
+
+// ─── 曲の構成（俯瞰パネル） ──────────────────────────────────
+function renderSongOverview() {
+  const list = document.getElementById("songOverviewList");
+  if (!list) return;
+  list.innerHTML = "";
+
+  work.phrases.forEach((phrase, pi) => {
+    const row = document.createElement("div");
+    row.className = "overview-phrase-row" + (pi === phraseIdx ? " is-active-phrase" : "");
+
+    const label = document.createElement("div");
+    label.className = "overview-phrase-label";
+    label.textContent = phrase.label;
+    label.addEventListener("click", () => switchToCount(pi, 0));
+    row.appendChild(label);
+
+    const chips = document.createElement("div");
+    chips.className = "overview-chips";
+    phrase.counts.forEach((count, ci) => {
+      const chip = document.createElement("div");
+      chip.className = "overview-chip";
+      if (pi === phraseIdx && ci === countIdx) chip.classList.add("is-current");
+      if (count.memo?.trim())      chip.classList.add("has-memo");
+      if (hasPoseContent(count))   chip.classList.add("has-pose");
+      if (count.items?.length > 0) chip.classList.add("has-items");
+
+      chip.title = [
+        `${phrase.label}-${ci + 1}`,
+        count.memo?.trim() || "",
+        count.items?.length ? `矢印・文字 ${count.items.length}件` : "",
+      ].filter(Boolean).join("\n");
+
+      chip.addEventListener("click", () => switchToCount(pi, ci));
+      chips.appendChild(chip);
+    });
+    row.appendChild(chips);
+    list.appendChild(row);
+  });
+}
+
+function addCountAfter() {
+  const phrase = work.phrases[phraseIdx];
+  phrase.counts.splice(countIdx + 1, 0, makeCount(countIdx + 2));
+  scheduleSave(); rebuildTimeline(); renderSongOverview();
+}
+
+function addCountBefore() {
+  const phrase = work.phrases[phraseIdx];
+  phrase.counts.splice(countIdx, 0, makeCount(countIdx + 1));
+  countIdx++;
+  scheduleSave(); rebuildTimeline(); renderSongOverview();
+}
+
+function removeCurrentCount() {
+  const phrase = work.phrases[phraseIdx];
+  if (phrase.counts.length <= 1) return;
+  phrase.counts.splice(countIdx, 1);
+  countIdx = Math.min(countIdx, phrase.counts.length - 1);
+  selectedBoneId = null; selectedItemId = null;
+  syncCountUI(); rebuildTimeline(); draw();
+  scheduleSave();
+}
+
+function addCountAtEnd() {
+  const phrase = work.phrases[phraseIdx];
+  phrase.counts.push(makeCount(phrase.counts.length + 1));
+  scheduleSave(); rebuildTimeline(); renderSongOverview();
+}
+
 // ─── タイムライン ──────────────────────────────────────────
+function scrollActiveChipIntoView() {
+  requestAnimationFrame(() => {
+    document.querySelector(".phrase-row-wrap.is-active-phrase-wrap .count-chip.is-active")
+      ?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  });
+}
+
 function rebuildTimeline() {
+  if (renamingPhraseIdx !== -1) return;
   const container = document.getElementById("phraseTimeline");
   if (!container) return;
   container.innerHTML = "";
 
   work.phrases.forEach((phrase, pi) => {
+    const wrap = document.createElement("div");
+    wrap.className = "phrase-row-wrap" + (pi === phraseIdx ? " is-active-phrase-wrap" : "");
+
     const row  = document.createElement("div");
     row.className = "phrase-row";
+
     const lbl  = document.createElement("span");
-    lbl.className = "phrase-label"; lbl.textContent = phrase.label;
+    lbl.className = "phrase-label";
+    lbl.textContent = phrase.label;
+    lbl.title = "クリックしてフレーズ名を変更";
+    lbl.addEventListener("click", () => startPhraseRename(pi, lbl));
     row.appendChild(lbl);
+
     const chips = document.createElement("div");
     chips.className = "phrase-counts";
 
     phrase.counts.forEach((count, ci) => {
-      if (ci === 8) { const d = document.createElement("span"); d.className = "count-divider"; chips.appendChild(d); }
+      if (ci > 0 && ci % 4 === 0) {
+        const d = document.createElement("span");
+        d.className = "count-divider";
+        d.title = "4拍ごと";
+        chips.appendChild(d);
+      }
       const btn  = document.createElement("button");
-      btn.type      = "button"; btn.className = "count-chip"; btn.textContent = ci + 1;
+      btn.type = "button";
+      btn.className = "count-chip";
+      const num = ci + 1;
+      btn.textContent = `${phrase.label}${num}`;
+      btn.title = `${phrase.label} の ${num} 拍目${hasContent(count) ? "（ポーズあり）" : ""}`;
       if (pi === phraseIdx && ci === countIdx) btn.classList.add("is-active");
       if (hasContent(count)) btn.classList.add("has-pose");
       btn.addEventListener("click", () => switchToCount(pi, ci));
@@ -925,13 +1268,115 @@ function rebuildTimeline() {
         if (!confirm(`フレーズ ${phrase.label} を削除しますか？`)) return;
         work.phrases.splice(pi, 1);
         if (phraseIdx >= work.phrases.length) phraseIdx = work.phrases.length - 1;
-        switchToCount(phraseIdx, Math.min(countIdx, COUNTS_PER_PHRASE - 1));
+        const len = work.phrases[phraseIdx].counts.length;
+        switchToCount(phraseIdx, Math.min(countIdx, len - 1));
       });
       row.appendChild(del);
     }
-    container.appendChild(row);
+    wrap.appendChild(row);
+
+    if (pi === phraseIdx) {
+      const tools = document.createElement("div");
+      tools.className = "count-tools-row";
+
+      const btnPre = document.createElement("button");
+      btnPre.type = "button";
+      btnPre.className = "btn-count-add";
+      btnPre.textContent = "前へ追加";
+      btnPre.title = "今の拍の前に新しいカウントを挿入";
+      btnPre.addEventListener("click", () => addCountBefore());
+      tools.appendChild(btnPre);
+
+      const btnPost = document.createElement("button");
+      btnPost.type = "button";
+      btnPost.className = "btn-count-add";
+      btnPost.textContent = "後ろへ追加";
+      btnPost.title = "このフレーズの最後にカウントを追加";
+      btnPost.addEventListener("click", () => addCountAtEnd());
+      tools.appendChild(btnPost);
+
+      const btnDelCount = document.createElement("button");
+      btnDelCount.type = "button";
+      btnDelCount.className = "btn-count-del";
+      btnDelCount.textContent = "削除";
+      btnDelCount.title = "今選んでいるカウントを削除";
+      btnDelCount.disabled = phrase.counts.length <= 1;
+      btnDelCount.addEventListener("click", () => removeCurrentCount());
+      tools.appendChild(btnDelCount);
+
+      wrap.appendChild(tools);
+    }
+
+    container.appendChild(wrap);
   });
+  scrollActiveChipIntoView();
+  renderSongOverview();
 }
+function exportWork() {
+  const json  = JSON.stringify(work, null, 2);
+  const blob  = new Blob([json], { type: "application/json" });
+  const url   = URL.createObjectURL(blob);
+  const a     = document.createElement("a");
+  const date  = new Date().toISOString().slice(0, 10);
+  a.href      = url;
+  a.download  = `${work.name || "dance-note"}-${date}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showFb("ファイルを書き出しました");
+}
+
+function importWork() {
+  const input = document.createElement("input");
+  input.type  = "file";
+  input.accept = ".json,application/json";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const w    = JSON.parse(text);
+      if (!Array.isArray(w?.phrases) || !w.phrases.length) {
+        alert("有効な振り付けファイルではありません。");
+        return;
+      }
+      const name = w.name || "無名";
+      if (!confirm(`「${name}」を読み込みます。\n現在の内容は上書きされます。よろしいですか？`)) return;
+      for (const phrase of w.phrases) {
+        for (const c of phrase.counts) sanitizeCount(c);
+      }
+      work      = w;
+      phraseIdx = 0;
+      countIdx  = 0;
+      saveWork();
+      rebuildTimeline();
+      syncCountUI();
+      renderPoseLibrary();
+      draw();
+      saveCurrentToLibrary();
+      renderWorkLibrary();
+      showFb(`「${name}」を読み込みました`);
+    } catch (e) {
+      console.error("import error:", e);
+      alert("ファイルの読み込みに失敗しました。");
+    }
+  });
+  input.click();
+}
+
+document.getElementById("btnExport")?.addEventListener("click", exportWork);
+document.getElementById("btnImport")?.addEventListener("click", importWork);
+
+// ─── キーボードショートカット オーバーレイ ────────────────
+function toggleKbdOverlay() {
+  document.getElementById("kbdOverlay")?.classList.toggle("hidden");
+}
+document.getElementById("btnHelp")?.addEventListener("click", toggleKbdOverlay);
+document.getElementById("btnCloseKbd")?.addEventListener("click", toggleKbdOverlay);
+document.getElementById("kbdOverlay")?.addEventListener("click", ev => {
+  if (ev.target === ev.currentTarget) toggleKbdOverlay();
+});
 
 // ─── リサイズ ──────────────────────────────────────────────
 function onResize() {
@@ -982,6 +1427,8 @@ function initApp() {
   rebuildTimeline();
   try { syncCountUI(); } catch (e) { console.error(e); }
   renderPoseLibrary();
+  renderWorkLibrary();
+  renderSongOverview();
   draw();
 }
 

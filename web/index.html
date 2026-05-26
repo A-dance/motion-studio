@@ -26,7 +26,7 @@
       <svg viewBox="0 0 20 20" fill="none">
         <path d="M4 2 L4 16 L8 12 L11 18 L13 17 L10 11 L15 11 Z" fill="currentColor"/>
       </svg>
-      <span>矢印</span>
+      <span>選択</span>
     </button>
 
     <button class="tool-btn" data-tool="orbit" title="視点を回す">
@@ -79,48 +79,40 @@
       <div id="viewport3d"></div>
       <canvas id="annotCanvas" aria-label="矢印・文字レイヤー"></canvas>
 
-      <!-- カウント表示（右上・最小限） -->
+      <!-- カウント表示（右上） -->
       <div class="stage-status">
-        <div class="ss-count">Count: <strong id="currentCountLabel">A – 1</strong></div>
+        <div class="ss-count">編集中 <strong id="currentCountLabel">A – 1 / 16</strong></div>
+        <span id="palmrot-display" class="palmrot-display" hidden></span>
       </div>
     </div>
 
     <!-- トランスポートバー ------------------------------------- -->
     <div class="transport-bar">
-      <div class="transport-nav">
-        <button class="tb-btn" id="btnFirst"  title="最初のカウントへ">|◀</button>
-        <button class="tb-btn" id="btnStop"   title="停止">■</button>
-        <button class="tb-btn" id="btnPlay"   title="自動再生">▶</button>
-        <button class="tb-btn" id="btnNext"   title="次のカウントへ">▶|</button>
-        <button class="tb-btn" id="btnLast"   title="最後のカウントへ">▶▶|</button>
-        <span class="tb-sep"></span>
-        <button class="tb-btn tb-btn--accent" id="btnActi" title="現在のポーズをアクションとしてコピー">Acti</button>
-        <button class="tb-btn" id="btnCopyCount" title="次のカウントにポーズをコピー">→</button>
-      </div>
-
       <!-- フレーズ + カウントチップ（スクロール可能） -->
       <div id="phraseTimeline" class="phrase-timeline"></div>
 
       <div class="transport-right">
-        <!-- 体の向き（ミニスライダー） -->
-        <input type="range" id="bodyYaw" min="0" max="359" value="0"
-               title="体の向き" class="body-yaw-range" />
-        <span class="tr-sep"></span>
-        <button class="tb-icon-btn" data-view="front" title="正面">⊙</button>
-        <button class="tb-icon-btn" data-view="diag"  title="斜め">↗</button>
-        <button class="tb-icon-btn" data-view="side"  title="横">→</button>
+        <div class="body-yaw-panel">
+          <div class="transport-caption">体の向き</div>
+          <div class="body-yaw-controls">
+            <button type="button" id="btnBodyYawLeft" class="tb-yaw-arrow" title="左に回す">←</button>
+            <button type="button" class="tb-view-btn" data-yaw-preset="front" title="正面を向く">正面</button>
+            <button type="button" class="tb-view-btn" data-yaw-preset="back" title="後ろを向く">後ろ</button>
+            <button type="button" id="btnBodyYawRight" class="tb-yaw-arrow" title="右に回す">→</button>
+          </div>
+        </div>
       </div>
-    </div>
-
-    <!-- 保存フィードバック（最小限） -->
-    <div class="hint-bar hint-bar--min">
-      <span class="save-hint" id="saveHint"></span>
     </div>
 
   </div><!-- /center-col -->
 
   <!-- ═══ 右パネル ══════════════════════════════════════ -->
   <aside class="right-panel">
+
+    <div class="rp-section" id="songOverviewSection">
+      <div class="rp-title">曲の構成</div>
+      <div id="songOverviewList" class="song-overview-list"></div>
+    </div>
 
     <!-- 矢印の調整（アイテム選択時のみ表示） -->
     <div id="itemControls" class="item-ctrl--idle rp-section">
@@ -162,7 +154,10 @@
       <label class="rp-sublabel" for="countMemo">このカウントのメモ</label>
       <textarea id="countMemo" class="count-memo-input" rows="2"
                 placeholder="例: ここで右に体重移動"></textarea>
-      <div class="rp-sublabel rp-sublabel--spaced">他カウントからポーズを適用</div>
+      <label class="rp-sublabel rp-sublabel--spaced" for="countRefSearch">他のポーズを検索して適用</label>
+      <input type="search" id="countRefSearch" class="count-ref-search"
+             placeholder="A-2 や保存ポーズ名…" autocomplete="off" spellcheck="false" />
+      <p id="countRefHint" class="rp-hint count-ref-hint">カウント名（A-2）や保存ポーズ名の一部を入力</p>
       <div id="countRefList" class="count-ref-list"></div>
     </div>
 
@@ -181,6 +176,12 @@
     <!-- 余白 -->
     <div class="rp-spacer"></div>
 
+    <div class="rp-section" id="workLibrarySection">
+      <div class="rp-title">振り付けライブラリ</div>
+      <p class="rp-hint">💾 保存するたびにここに記録されます</p>
+      <div id="workLibraryList" class="pose-library-list"></div>
+    </div>
+
     <!-- フッター: 作品管理 + タブ -->
     <div class="rp-footer">
       <div class="rp-tabs">
@@ -190,15 +191,37 @@
       <input type="text" id="workName" class="rp-work-name"
              placeholder="workName" autocomplete="off" spellcheck="false" />
       <div class="rp-footer-btns">
-        <button id="btnSaveWork" class="rf-btn" title="保存">💾</button>
-        <button id="btnNewWork"  class="rf-btn" title="新しい作品">＋</button>
+        <button id="btnSaveWork"  class="rf-btn" title="保存 (localStorage)">💾</button>
+        <button id="btnNewWork"   class="rf-btn" title="新しい作品">＋</button>
         <button id="btnAddPhrase" class="rf-btn" title="フレーズ追加">⊕</button>
+        <button id="btnExport"    class="rf-btn" title="JSON ファイルに書き出し（バックアップ）">↑</button>
+        <button id="btnImport"    class="rf-btn" title="JSON ファイルを読み込み">↓</button>
       </div>
     </div>
 
   </aside>
 
 </div><!-- /app -->
+
+<!-- キーボードショートカット オーバーレイ -->
+<div id="kbdOverlay" class="kbd-overlay hidden">
+  <div class="kbd-box">
+    <div class="kbd-title">キーボードショートカット</div>
+    <div class="kbd-grid">
+      <div class="kbd-row"><kbd>←</kbd><span>前のカウント</span></div>
+      <div class="kbd-row"><kbd>→</kbd><span>次のカウント</span></div>
+      <div class="kbd-row"><kbd>Esc</kbd><span>選択解除・ツールをリセット</span></div>
+      <div class="kbd-row"><kbd>Del / BS</kbd><span>選択アイテムを削除</span></div>
+      <div class="kbd-row"><kbd>?</kbd><span>このヘルプを表示 / 閉じる</span></div>
+    </div>
+    <div class="kbd-section-title">ドラッグ操作</div>
+    <div class="kbd-grid">
+      <div class="kbd-row"><kbd>ドラッグ</kbd><span>関節を移動</span></div>
+      <div class="kbd-row"><kbd>Shift+ドラッグ</kbd><span>手前 / 奥へ移動</span></div>
+    </div>
+    <button id="btnCloseKbd" class="kbd-close">閉じる</button>
+  </div>
+</div>
 
 <!-- インライン文字編集（fixed オーバーレイ） -->
 <div id="inlineEdit" class="inline-edit hidden">
